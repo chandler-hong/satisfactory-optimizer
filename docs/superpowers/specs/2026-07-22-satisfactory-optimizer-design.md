@@ -261,3 +261,25 @@ Surfaced by the Phase 1 final review; deliberately deferred (not lost):
 - **Phase 3 power note:** `basePowerMW` is 0 for variable-power buildings (e.g.
   Particle Accelerator) — their power lives on the recipe
   (`isVariablePower`/`minPower`/`maxPower`). Handle in the Phase 3 power layer.
+
+## 19. Deferred from Phase 2 (tracked backlog)
+
+Phase 2 (LP engine) final review: ready to merge, no Critical/Important. Cheap
+follow-ups to fold in (ideally before Phase 4 wires these into the UI):
+
+- **Consume `bounded` in `maxOutput`:** return `feasible:false` when the LP objective
+  is unbounded, rather than reporting a bogus `maxRate`. Unreachable today (every chain
+  roots in a capped raw; the real-data smoke returns a finite 15), so add it with a test
+  when Phase 4 can exercise it.
+- **Guard raw-resource targets in `buildTargetRatesModel`:** a target id that is a raw
+  resource currently clobbers its `{max:cap}` with `{min:d}`. Reject it or document the
+  precondition (Mode B targets parts, never raws).
+- **`hitTargets` contract note:** an infeasible solve can return `feasible:false` with an
+  empty `shortfalls` map — Phase 4 must not assume `!feasible ⇒ non-empty shortfalls`.
+- **Edge-case tests** (cheap, high value for a math engine): targets-as-Map form, `noWaste`
+  at the optimize layer, "item both input+output", "target that is also an intermediate".
+- **Polish:** JSDoc on the lp-builder exports; comment the `bindingResources` `cap>0`
+  guard; have `buildMaxModel` reuse a by-id map instead of `.find` (O(n²)); the vendored
+  solver's dangling `sourceMappingURL` (harmless devtools 404).
+- **Before public launch (Phase 5):** bundle the vendored solver's MIT license text
+  (README records it; MIT wants the notice included in copies).
