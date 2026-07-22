@@ -283,3 +283,25 @@ follow-ups to fold in (ideally before Phase 4 wires these into the UI):
   solver's dangling `sourceMappingURL` (harmless devtools 404).
 - **Before public launch (Phase 5):** bundle the vendored solver's MIT license text
   (README records it; MIT wants the notice included in copies).
+
+## 20. Deferred from Phase 3 (tracked backlog)
+
+Phase 3 (physical/shard + belt) final review: ready to merge, no Critical. The one
+Important is an explicit re-deferral (below), not a silent drop.
+
+- **Variable-power buildings (re-deferred from §18):** `realize` computes power as
+  `machines × basePowerMW × clock^exp`, but Particle Accelerator / Quantum Encoder /
+  Converter etc. carry power on the recipe (`isVariablePower`/`minPower`/`maxPower`), not
+  `basePowerMW` — so their power is currently **under-reported** (a `TODO` marks the spot
+  in `physical-layer.js`). Proper fix: carry recipe variable-power through `normalize` +
+  the `Recipe` typedef and report a min/max power **range**. Do before Phase 4 surfaces
+  accurate power totals.
+- **`realize` contract polish:** report "buildings saved vs the no-shard baseline" (today
+  Phase 4 must call `realize` twice to show shards' benefit); document/normalize
+  `perRecipe` ordering (currently reverse of `recipeRates` insertion order — Phase 4
+  should sort for display).
+- **Minor:** reconsider `saturated` (currently equals `lines > 1`); add tests for
+  `realize`'s load≤0 / missing-building fallbacks; de-dup `EPS`/`round6`/
+  `DEFAULT_POWER_EXPONENT` into a shared helper.
+- **Done this phase (noted for completeness):** non-integer/NaN shard budget is floored;
+  unknown belt/pipe tier now throws.
