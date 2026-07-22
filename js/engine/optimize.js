@@ -51,7 +51,11 @@ export function hitTargets({ dataset, caps, enabledRecipeIds, targets, noWaste =
   }
   const recipeRates = ratesFrom(r.values, enabledRecipeIds);
   return {
-    feasible: shortfalls.size === 0,
+    // Defense-in-depth: the target-rates model is always feasible today (the
+    // slack variables guarantee a feasible point), so this AND-clause is inert
+    // now — but folding in solver feasibility means a future hard-constraint
+    // change (e.g. noWaste={equal:0}) can never report a false success.
+    feasible: r.feasible && shortfalls.size === 0,
     recipeRates,
     shortfalls,
     bindingResources: bindingResources(dataset, caps, recipeRates),
