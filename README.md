@@ -26,8 +26,10 @@ python3 -m http.server
 ## Tests
 
 ```sh
-node --test
+npm test
 ```
+
+(`npm test` is scoped to `test/**/*.test.js` so fixtures/helpers under `test/` are not executed as tests.)
 
 ## Tech
 
