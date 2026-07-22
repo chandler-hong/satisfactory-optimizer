@@ -51,3 +51,12 @@ test('defaults kind to miner and tier to Mk1', () => {
   const caps = capsFromInputs({ Desc_OreIron_C: { normal: 1 } });
   assert.equal(caps.get('Desc_OreIron_C'), 60);
 });
+
+test('Mk.3 miner rates (pure = 480, normal = 240)', () => {
+  const caps = capsFromInputs({
+    Desc_OreIron_C: { kind: 'miner', minerTier: 'Mk3', pure: 1 },
+    Desc_OreCopper_C: { kind: 'miner', minerTier: 'Mk3', normal: 1 },
+  });
+  assert.equal(caps.get('Desc_OreIron_C'), 480);
+  assert.equal(caps.get('Desc_OreCopper_C'), 240);
+});

@@ -61,3 +61,18 @@ test('resolves even if writing the cache throws (quota exceeded)', async () => {
   const ds = await loadDataset({ fetchImpl, storage, url: 'x', cacheKey: 'k' });
   assert.equal(ds.items.get('Desc_IronIngot_C').name, 'Iron Ingot');
 });
+
+test('treats a throwing storage.getItem as no cache and still fetches', async () => {
+  const storage = {
+    getItem: () => { throw new Error('SecurityError'); },
+    setItem: () => {},
+  };
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    return { ok: true, status: 200, text: async () => JSON.stringify(miniRaw) };
+  };
+  const ds = await loadDataset({ fetchImpl, storage, url: 'x', cacheKey: 'k' });
+  assert.equal(calls, 1);               // read threw -> treated as no cache -> fetched
+  assert.equal(ds.recipes.length, 2);
+});

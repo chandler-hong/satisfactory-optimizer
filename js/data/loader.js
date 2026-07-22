@@ -10,13 +10,20 @@ import { normalize } from './normalize.js';
 export async function loadDataset(deps = {}) {
   const {
     fetchImpl = fetch,
-    storage = (typeof globalThis !== 'undefined' ? globalThis.localStorage : undefined),
     url = DATASET_URL,
     cacheKey = CACHE_KEY,
   } = deps;
 
+  // Resolve storage safely: reading globalThis.localStorage can itself throw
+  // (SecurityError) in sandboxed or storage-disabled browser contexts.
+  let storage = deps.storage;
+  if (storage === undefined) {
+    try { storage = globalThis.localStorage; } catch { storage = undefined; }
+  }
+
   if (storage) {
-    const cached = storage.getItem(cacheKey);
+    let cached = null;
+    try { cached = storage.getItem(cacheKey); } catch { /* read blocked: treat as no cache */ }
     if (cached) {
       try { return normalize(JSON.parse(cached)); } catch { /* corrupt cache: refetch */ }
     }
