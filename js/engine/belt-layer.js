@@ -11,6 +11,8 @@ const round6 = (x) => Math.round(x * 1e6) / 1e6;
 export function beltReport({ dataset, recipeRates, beltTier = 'Mk4', pipeTier = 'Mk2' }) {
   const beltCap = BELT_CAPACITY[beltTier];
   const pipeCap = PIPE_CAPACITY[pipeTier];
+  if (beltCap === undefined) throw new Error(`Unknown belt tier: ${beltTier}`);
+  if (pipeCap === undefined) throw new Error(`Unknown pipe tier: ${pipeTier}`);
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const flows = new Map(); // itemId -> {produced, consumed}
   for (const [rid, load] of recipeRates) {

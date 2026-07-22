@@ -31,7 +31,10 @@ export function recipeOptions(load) {
  */
 export function allocateShards(items, budget) {
   const maxUseful = items.reduce((s, it) => s + Math.max(0, ...it.options.map((o) => o.shards)), 0);
-  const B = Math.max(0, Math.min(budget, maxUseful));
+  // Shards are whole numbers; floor + clamp so a non-integer/NaN budget can't
+  // produce a fractional/invalid Array length below.
+  const safeBudget = Number.isFinite(budget) ? budget : 0;
+  const B = Math.max(0, Math.floor(Math.min(safeBudget, maxUseful)));
   let dp = new Array(B + 1).fill(Infinity);
   dp[0] = 0;
   const choice = [];
@@ -83,6 +86,10 @@ export function realize({ dataset, recipeRates, shardBudget = 0 }) {
     const building = recipe ? dataset.buildings.get(recipe.buildingId) : undefined;
     const base = building?.basePowerMW ?? 0;
     const exp = building?.powerExponent ?? DEFAULT_POWER_EXPONENT;
+    // NOTE (spec backlog §18/§20): variable-power buildings (Particle Accelerator,
+    // Quantum Encoder, etc.) carry power on the recipe (isVariablePower/min/maxPower),
+    // NOT basePowerMW, so their power is currently under-reported. Deliberately
+    // deferred; revisit before Phase 4 surfaces accurate power totals.
     const powerMW = sel.machines * base * Math.pow(sel.clock, exp);
     totalPowerMW += powerMW;
     perRecipe.push({ recipeId: rid, buildingId: recipe?.buildingId ?? null, machines: sel.machines, clock: sel.clock, shards: sel.shards, powerMW });

@@ -64,3 +64,9 @@ test('realize: absorbs LP float noise via rounding', () => {
   const r = realize({ dataset, recipeRates: new Map([['r1', 1.99999999]]), shardBudget: 0 });
   assert.equal(r.totalMachines, 2);           // rounds to 2, not ceil(1.99999999)->2 anyway, but 2.0000001 would also -> 2
 });
+
+test('allocateShards: floors a non-integer budget and treats NaN as 0', () => {
+  const A = { id: 'A', options: recipeOptions(7.5) };
+  assert.equal(allocateShards([A], 5.9).totalMachines, allocateShards([A], 5).totalMachines);
+  assert.equal(allocateShards([A], NaN).totalMachines, allocateShards([A], 0).totalMachines);
+});

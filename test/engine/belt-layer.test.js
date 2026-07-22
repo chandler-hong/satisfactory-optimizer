@@ -111,3 +111,9 @@ test('beltReport: sorts strictly by descending rate with distinct rates', () => 
   assert.equal(rep[0].itemId, 'hi');
   assert.equal(rep[1].itemId, 'lo');
 });
+
+test('beltReport: throws on an unknown belt or pipe tier', () => {
+  const ds = { rawResourceIds: new Set(), buildings: new Map(), items: new Map(), recipes: [] };
+  assert.throws(() => beltReport({ dataset: ds, recipeRates: new Map(), beltTier: 'Mk7' }), /Unknown belt tier/);
+  assert.throws(() => beltReport({ dataset: ds, recipeRates: new Map(), pipeTier: 'Mk9' }), /Unknown pipe tier/);
+});
