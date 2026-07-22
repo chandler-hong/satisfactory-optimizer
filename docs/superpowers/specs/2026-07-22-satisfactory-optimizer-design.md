@@ -68,6 +68,8 @@ Hosted on GitHub Pages: zero build step, vanilla ES modules.
 - Caching: after first successful load, store the normalized dataset in `localStorage`
   keyed by version; load from cache on later visits; expose a "refresh data" action.
 
+- **Fluids:** greeny's `data.json` stores fluid amounts already in **m³** (per-item units), NOT the raw ×1000 game value — the normalizer does **not** divide by 1000. (Verified 2026-07-22 by the Phase 1 real-data smoke; the initial "×1000" assumption in §Global Constraints of the Phase 1 plan was wrong and has been corrected in code.)
+
 ### 5.2 Icons
 - **Hotlinked** from a community CDN (jsDelivr; SatisfactoryTools asset set or the
   Satisfactory wiki), mapped per item/building via its slug/className.
