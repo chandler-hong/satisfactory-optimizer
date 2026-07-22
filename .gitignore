@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Node (used only for the test runner / tooling)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Local scratch
+*.local
