@@ -242,3 +242,22 @@ Spot-check a handful of full-plan outputs against satisfactorytools.com.
 
 - Publish source: repo root vs `/docs` (decide at phase 5; no impact before then).
 - Exact pinned dataset commit + icon URL pattern (locked in phase 1, data adapter).
+
+## 18. Deferred from Phase 1 (tracked backlog)
+
+Surfaced by the Phase 1 final review; deliberately deferred (not lost):
+
+- **Embedded fallback dataset snapshot** (from §5.1): not built in Phase 1. Low
+  risk today — the dataset is pinned to an immutable commit (jsDelivr caches
+  pinned commits durably; schema cannot drift on a fixed commit) and there is no
+  UI consumer until Phase 4. Revisit before public launch / when a live loader
+  consumer exists.
+- **resource-model input validation** (Phase 4, when config is UI-driven): throw
+  on an unrecognized `kind` (currently returns 0); validate `minerTier` with a
+  helpful message (currently a raw TypeError on e.g. `'Mk4'`); clamp `clock` to
+  the ≤2.5 overclock ceiling (§7).
+- **loader tidy:** move `normalize()` out of the corrupt-cache `catch` so a real
+  `normalize()` bug can't be misread as a corrupt cache (low priority).
+- **Phase 3 power note:** `basePowerMW` is 0 for variable-power buildings (e.g.
+  Particle Accelerator) — their power lives on the recipe
+  (`isVariablePower`/`minPower`/`maxPower`). Handle in the Phase 3 power layer.
