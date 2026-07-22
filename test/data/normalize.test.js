@@ -18,12 +18,12 @@ test('computes solid per-minute rates and building', () => {
   assert.equal(iron.buildingId, 'Desc_SmelterMk1_C');
 });
 
-test('divides fluid amounts by 1000 (ground truth: Plastic)', () => {
+test('computes fluid per-minute rates (fluids already in m3, no x1000 scaling)', () => {
   const ds = normalize(miniRaw);
   const p = ds.recipes.find((r) => r.id === 'Recipe_Plastic_C');
-  assert.equal(p.inputs.find((i) => i.itemId === 'Desc_LiquidOil_C').perMin, 30);   // 3000/1000=3 /6s*60
+  assert.equal(p.inputs.find((i) => i.itemId === 'Desc_LiquidOil_C').perMin, 30);   // 3 /6s*60
   assert.equal(p.outputs.find((o) => o.itemId === 'Desc_Plastic_C').perMin, 20);    // 2 /6s*60
-  assert.equal(p.outputs.find((o) => o.itemId === 'Desc_HeavyOilResidue_C').perMin, 10); // 1000/1000=1 /6*60
+  assert.equal(p.outputs.find((o) => o.itemId === 'Desc_HeavyOilResidue_C').perMin, 10); // 1 /6s*60
 });
 
 test('excludes non-machine recipes', () => {

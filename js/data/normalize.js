@@ -40,11 +40,9 @@ export function normalize(raw) {
     Object.values(raw.resources || {}).map((r) => r.item)
   );
 
-  const amountToPerMin = (entry, timeSec) => {
-    const it = items.get(entry.item);
-    const amount = it && it.liquid ? entry.amount / 1000 : entry.amount;
-    return (amount / timeSec) * 60;
-  };
+  // greeny/SatisfactoryTools stores all recipe amounts already in per-item
+  // units (fluids in m³, not the raw x1000 game value), so no fluid scaling.
+  const amountToPerMin = (entry, timeSec) => (entry.amount / timeSec) * 60;
 
   const recipes = [];
   for (const key of Object.keys(raw.recipes || {})) {
