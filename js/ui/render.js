@@ -177,11 +177,25 @@ function renderBuildRow(r) {
   return tr;
 }
 
-function renderBuildTable(rows) {
+function renderBuildTable(rows, totals) {
   const wrap = el('section');
   const heading = el('h3');
   heading.textContent = 'Build';
   wrap.appendChild(heading);
+
+  // Totals per machine type (summed across recipes), before the per-recipe table.
+  if (totals && totals.length > 0) {
+    const totalsRow = el('div', 'machine-totals');
+    for (const t of totals) {
+      const chip = el('div', 'machine-total');
+      chip.appendChild(makeIcon(t.buildingSlug, t.buildingName, 'building'));
+      const s = el('span');
+      s.textContent = `${t.buildingName} ×${t.machines}`;
+      chip.appendChild(s);
+      totalsRow.appendChild(chip);
+    }
+    wrap.appendChild(totalsRow);
+  }
 
   const table = el('table', 'build-table');
   const thead = el('thead');
@@ -346,7 +360,7 @@ export function renderResults(rootEl, planView) {
 
   rootEl.appendChild(renderTiles(planView.tiles));
   rootEl.appendChild(renderMeters(planView.resourceMeters));
-  rootEl.appendChild(renderBuildTable(planView.buildRows));
+  rootEl.appendChild(renderBuildTable(planView.buildRows, planView.machineTotals));
   rootEl.appendChild(renderBeltList(planView.beltRows));
 
   if (planView.graph && planView.graph.nodes.length > 0) {

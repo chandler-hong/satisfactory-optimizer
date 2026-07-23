@@ -258,6 +258,16 @@ export function computePlan(dataset, req) {
     })
     .sort((a, b) => b.machines - a.machines);
 
+  // Total machines per building TYPE (summed across recipes) — a quick
+  // "you'll need N of each machine" summary, sorted by count desc.
+  const totalsByBuilding = new Map();
+  for (const r of buildRows) {
+    const t = totalsByBuilding.get(r.buildingName) || { buildingName: r.buildingName, buildingSlug: r.buildingSlug, machines: 0 };
+    t.machines += r.machines;
+    totalsByBuilding.set(r.buildingName, t);
+  }
+  const machineTotals = [...totalsByBuilding.values()].sort((a, b) => b.machines - a.machines);
+
   const beltRows = belts.map((f) => ({ itemId: f.itemId, name: nameOf(dataset, f.itemId), slug: slugOf(dataset, f.itemId), rate: f.rate, lines: f.lines, tier: f.tier, fluid: f.fluid, saturated: f.saturated }));
 
   const graph = buildGraph(dataset, recipeRates, machinesById, mode === 'targets' ? Object.keys(req.targets || {}) : perPart.map((p) => p.itemId));
@@ -270,6 +280,7 @@ export function computePlan(dataset, req) {
     tiles: { machines: phys.totalMachines, powerMW: fmt1(phys.totalPowerMW), shards: phys.totalShardsUsed },
     resourceMeters,
     buildRows,
+    machineTotals,
     beltRows,
     graph,
     refinements: buildRefinements(dataset, graph),

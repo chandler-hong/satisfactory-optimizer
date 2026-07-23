@@ -207,3 +207,30 @@ test('refinement options use whole machines (FP-safe) and whole materials (round
   assert.equal(cableOpt.graph.nodes.find((n) => n.id.startsWith('rec:')).machines, 5, 'floor(80/15) = 5 machines');
   assert.equal(cableOpt.graph.nodes.find((n) => n.id === 'in:wire').rate, 187, 'wire material rounded down (5 * 37.5 = 187.5 -> 187)');
 });
+
+test('computePlan sums machines by building type', () => {
+  const ds = {
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore', liquid: false }],
+      ['a', { id: 'a', name: 'A', slug: 'a', liquid: false }],
+      ['b', { id: 'b', name: 'B', slug: 'b', liquid: false }],
+    ]),
+    buildings: new Map([
+      ['smelt', { id: 'smelt', name: 'Smelter', slug: 'smelt', basePowerMW: 4, powerExponent: 1.321928 }],
+      ['con', { id: 'con', name: 'Constructor', slug: 'con', basePowerMW: 4, powerExponent: 1.321928 }],
+    ]),
+    rawResourceIds: new Set(['ore']),
+    recipes: [
+      { id: 'r1', name: 'A', buildingId: 'smelt', alternate: false, inputs: [{ itemId: 'ore', perMin: 60 }], outputs: [{ itemId: 'a', perMin: 60 }] },
+      { id: 'r2', name: 'B', buildingId: 'con', alternate: false, inputs: [{ itemId: 'a', perMin: 30 }], outputs: [{ itemId: 'b', perMin: 30 }] },
+    ],
+  };
+  const view = computePlan(ds, {
+    mode: 'max', caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['r1', 'r2']),
+    targets: [{ itemId: 'b', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  const byName = Object.fromEntries(view.machineTotals.map((t) => [t.buildingName, t.machines]));
+  assert.equal(byName['Smelter'], 1, '60 ore -> 60 A = 1 Smelter');
+  assert.equal(byName['Constructor'], 2, '60 A / 30 = 2 Constructors');
+  assert.equal(view.machineTotals.reduce((s, t) => s + t.machines, 0), view.tiles.machines, 'per-type totals sum to the grand total');
+});

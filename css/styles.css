@@ -274,6 +274,27 @@ table {
   background: var(--surface-2);
 }
 
+/* Totals per machine type, shown above the per-recipe build table. */
+.machine-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.machine-total {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
 /* ==========================================================================
    Belt list (.belt-list)
    ========================================================================== */
