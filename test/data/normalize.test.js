@@ -45,3 +45,8 @@ test('maps building base power and exponent (with default)', () => {
   assert.equal(ds.buildings.get('Desc_SmelterMk1_C').powerExponent, 1.321928);
   assert.equal(ds.buildings.get('Desc_ConstructorMk1_C').powerExponent, 1.321928); // default
 });
+
+test('normalize carries building slug', () => {
+  const ds = normalize(miniRaw);
+  assert.equal(ds.buildings.get('Desc_OilRefinery_C').slug, 'refinery');
+});

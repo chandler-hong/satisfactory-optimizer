@@ -10,9 +10,9 @@ export const miniRaw = {
     Desc_HeavyOilResidue_C:{ className: 'Desc_HeavyOilResidue_C',name: 'Heavy Oil Residue', slug: 'heavy-oil-residue',  liquid: true  },
   },
   buildings: {
-    Desc_SmelterMk1_C:     { className: 'Desc_SmelterMk1_C',     name: 'Smelter',    metadata: { powerConsumption: 4,  powerConsumptionExponent: 1.321928 } },
-    Desc_OilRefinery_C:    { className: 'Desc_OilRefinery_C',    name: 'Refinery',   metadata: { powerConsumption: 30, powerConsumptionExponent: 1.321928 } },
-    Desc_ConstructorMk1_C: { className: 'Desc_ConstructorMk1_C', name: 'Constructor',metadata: { powerConsumption: 4 } },
+    Desc_SmelterMk1_C:     { className: 'Desc_SmelterMk1_C',     name: 'Smelter',    slug: 'smelter',     metadata: { powerConsumption: 4,  powerConsumptionExponent: 1.321928 } },
+    Desc_OilRefinery_C:    { className: 'Desc_OilRefinery_C',    name: 'Refinery',   slug: 'refinery',    metadata: { powerConsumption: 30, powerConsumptionExponent: 1.321928 } },
+    Desc_ConstructorMk1_C: { className: 'Desc_ConstructorMk1_C', name: 'Constructor',slug: 'constructor', metadata: { powerConsumption: 4 } },
   },
   resources: {
     Desc_OreIron_C:   { item: 'Desc_OreIron_C',   speed: 1 },

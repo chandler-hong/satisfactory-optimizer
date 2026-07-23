@@ -28,6 +28,7 @@ export function normalize(raw) {
     buildings.set(b.className, {
       id: b.className,
       name: b.name,
+      slug: b.slug,
       basePowerMW,
       powerExponent:
         typeof md.powerConsumptionExponent === 'number'
