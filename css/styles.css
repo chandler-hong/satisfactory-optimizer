@@ -1,31 +1,37 @@
 /* ==========================================================================
-   Satisfactory Optimizer — theme tokens
-   Locked, contrast-validated palette (dark + light). Do not adjust ad hoc;
-   these were checked at >=3:1 vs their surface in both modes.
+   Satisfactory Optimizer — fonts + theme tokens
+   Cozy vendored UI font (Nunito, latin subset) — self-contained, no runtime
+   CDN. Palette leans warm/industrial (Satisfactory pioneer-orange accent on
+   warm-dark / warm-paper surfaces); ink stays high-contrast vs its surface.
    ========================================================================== */
 
+@font-face { font-family: "Nunito"; font-style: normal; font-weight: 400; font-display: swap; src: url("../assets/fonts/nunito-400.woff2") format("woff2"); }
+@font-face { font-family: "Nunito"; font-style: normal; font-weight: 600; font-display: swap; src: url("../assets/fonts/nunito-600.woff2") format("woff2"); }
+@font-face { font-family: "Nunito"; font-style: normal; font-weight: 700; font-display: swap; src: url("../assets/fonts/nunito-700.woff2") format("woff2"); }
+@font-face { font-family: "Nunito"; font-style: normal; font-weight: 800; font-display: swap; src: url("../assets/fonts/nunito-800.woff2") format("woff2"); }
+
 :root[data-theme="dark"] {
-  --surface: #1a1c1f;
-  --surface-2: #23262b;
-  --border: #33373d;
-  --ink: #f2f4f7;
-  --ink-2: #b8bfc9;
-  --ink-muted: #7f8791;
-  --accent: #f2a044;
-  --accent-ink: #1a1c1f;
+  --surface: #17181b;
+  --surface-2: #202227;
+  --border: #35383f;
+  --ink: #f3f4f6;
+  --ink-2: #bbc0c9;
+  --ink-muted: #858c96;
+  --accent: #ff9d42;
+  --accent-ink: #17130b;
   --good: #5cc98a;
   --warning: #e6b23c;
   --critical: #e0655b;
 }
 
 :root[data-theme="light"] {
-  --surface: #fcfcfb;
-  --surface-2: #f0f1f3;
-  --border: #e2e5e9;
-  --ink: #1a1c1f;
-  --ink-2: #4a5059;
-  --ink-muted: #8a929c;
-  --accent: #c26a12;
+  --surface: #faf9f6;
+  --surface-2: #efece6;
+  --border: #e2ded6;
+  --ink: #1d1a16;
+  --ink-2: #514b42;
+  --ink-muted: #897f73;
+  --accent: #cf6f11;
   --accent-ink: #ffffff;
   --good: #2f8f57;
   --warning: #9a6b00;
@@ -49,10 +55,10 @@ body {
 }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--surface);
   color: var(--ink);
-  line-height: 1.5;
+  line-height: 1.55;
   min-height: 100vh;
 }
 
@@ -101,9 +107,10 @@ table {
 }
 
 .site-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--ink);
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--accent);
 }
 
 .theme-toggle {
@@ -707,14 +714,21 @@ input[type="range"]:focus-visible {
   stroke-width: 1.5;
 }
 
+/* Output/storage sink node — dashed green = "leaves the system". */
+.diagram-node--output .diagram-box {
+  stroke: var(--good);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+
 .diagram-title {
   fill: var(--ink);
-  font: 600 12px system-ui, -apple-system, sans-serif;
+  font: 700 12px "Nunito", system-ui, sans-serif;
 }
 
 .diagram-sub {
   fill: var(--ink-muted);
-  font: 11px system-ui, -apple-system, sans-serif;
+  font: 600 11px "Nunito", system-ui, sans-serif;
 }
 
 .diagram-edge {
@@ -726,4 +740,16 @@ input[type="range"]:focus-visible {
 
 .diagram-arrow {
   fill: var(--ink-muted);
+}
+
+/* Red Reset button (top-left of the sidebar). */
+.sidebar button.reset-btn {
+  background: var(--critical);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.sidebar button.reset-btn:hover {
+  background: color-mix(in srgb, var(--critical) 85%, #000);
 }

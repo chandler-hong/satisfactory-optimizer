@@ -452,9 +452,9 @@ export function buildInputs(dataset, sidebarEl) {
   // --- Reset (clears everything back to the empty initial state) ----------
   const resetRow = el('div');
   resetRow.style.display = 'flex';
-  resetRow.style.justifyContent = 'flex-end';
-  resetRow.style.marginBottom = '0.5rem';
-  const resetBtn = el('button');
+  resetRow.style.justifyContent = 'flex-start';
+  resetRow.style.marginBottom = '0.75rem';
+  const resetBtn = el('button', 'reset-btn');
   resetBtn.type = 'button';
   resetBtn.textContent = 'Reset';
   resetRow.appendChild(resetBtn);
