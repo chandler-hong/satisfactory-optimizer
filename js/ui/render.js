@@ -108,7 +108,9 @@ function renderMeterRow(m) {
   nameSpan.textContent = m.name;
   label.appendChild(nameSpan);
   const statsSpan = el('span');
-  statsSpan.textContent = `${m.used} / ${m.available}${m.fluid ? ' m³' : ''}/min`;
+  statsSpan.textContent = m.unlimited
+    ? `${m.used}${m.fluid ? ' m³' : ''}/min · unlimited`
+    : `${m.used} / ${m.available}${m.fluid ? ' m³' : ''}/min`;
   label.appendChild(statsSpan);
   if (m.binding) {
     const chip = el('span', 'chip warning');
@@ -117,12 +119,15 @@ function renderMeterRow(m) {
   }
   row.appendChild(label);
 
-  const meter = el('div', m.binding ? 'meter meter--binding' : 'meter');
-  const fill = el('span', 'meter__fill');
-  const pct = Math.max(0, Math.min(1, m.pct));
-  fill.style.width = `${pct * 100}%`;
-  meter.appendChild(fill);
-  row.appendChild(meter);
+  // Unlimited resources (auto-water) have no cap to fill, so no meter bar.
+  if (!m.unlimited) {
+    const meter = el('div', m.binding ? 'meter meter--binding' : 'meter');
+    const fill = el('span', 'meter__fill');
+    const pct = Math.max(0, Math.min(1, m.pct));
+    fill.style.width = `${pct * 100}%`;
+    meter.appendChild(fill);
+    row.appendChild(meter);
+  }
 
   return row;
 }

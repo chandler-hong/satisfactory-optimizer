@@ -121,3 +121,28 @@ test('computePlan surfaces unrefined byproducts as surplus sink nodes', () => {
   assert.ok(approx(surByp.rate, 20), 'surplus sink carries the leftover rate (20/min)');
   assert.ok(view.graph.edges.some((e) => e.from === 'rec' && e.to === 'sur:byp'), 'edge from producer to surplus sink');
 });
+
+test('computePlan handles an unlimited (Infinity) resource cap', () => {
+  // X needs unlimited water + a bounded ore; output is bounded by the ore.
+  const ds = {
+    items: new Map([
+      ['w', { id: 'w', name: 'Water', slug: 'w', liquid: true }],
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore', liquid: false }],
+      ['x', { id: 'x', name: 'X', slug: 'x', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b', basePowerMW: 5, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['w', 'ore']),
+    recipes: [
+      { id: 'rx', name: 'X', buildingId: 'b', alternate: false, inputs: [{ itemId: 'w', perMin: 60 }, { itemId: 'ore', perMin: 30 }], outputs: [{ itemId: 'x', perMin: 30 }] },
+    ],
+  };
+  const view = computePlan(ds, {
+    mode: 'max', caps: new Map([['w', Infinity], ['ore', 30]]), enabledRecipeIds: new Set(['rx']),
+    targets: [{ itemId: 'x', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  assert.equal(view.feasible, true);
+  assert.ok(approx(view.perPart[0].rate, 30), 'output bounded by the finite ore cap, not the unlimited water');
+  const w = view.resourceMeters.find((m) => m.itemId === 'w');
+  assert.ok(w && w.unlimited === true, 'unlimited resource flagged');
+  assert.ok(approx(w.used, 60), 'unlimited resource still reports usage');
+});

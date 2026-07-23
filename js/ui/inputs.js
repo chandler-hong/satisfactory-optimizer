@@ -4,6 +4,8 @@ import { iconUrl } from './icons.js';
 const MINER_TIERS = ['Mk1', 'Mk2', 'Mk3'];
 const BELT_TIERS = ['Mk1', 'Mk2', 'Mk3', 'Mk4', 'Mk5', 'Mk6'];
 const PIPE_TIERS = ['Mk1', 'Mk2'];
+const WATER_ID = 'Desc_Water_C'; // auto-included as effectively unlimited (see readRequest)
+const STATE_KEY = 'sat-optimizer:inputs:v1'; // persisted sidebar state (survives refresh)
 
 function el(tag, className) {
   const node = document.createElement(tag);
@@ -384,13 +386,30 @@ function makeResourceRow(resourceOptions, onRowChange) {
     getResourceId: () => picker.getValue(),
     currentRate,
     removeBtn,
-    seed({ resourceId, minerTier, normal }) {
-      if (resourceId) {
-        picker.setValue(resourceId);
-        buildExtraction(kindById.get(resourceId) || 'miner');
+    getState: () => ({
+      resourceId: picker.getValue(),
+      minerTier: tierSelect.value,
+      impure: inputs.impure ? readCount(inputs.impure) : 0,
+      normal: inputs.normal ? readCount(inputs.normal) : 0,
+      pure: inputs.pure ? readCount(inputs.pure) : 0,
+      count: inputs.count ? readCount(inputs.count) : 0,
+      overclock: pct,
+    }),
+    // Restore from a saved state without firing change events; the caller
+    // recomputes once after all rows are restored.
+    restore(s) {
+      if (s.resourceId) {
+        picker.setValue(s.resourceId);
+        buildExtraction(kindById.get(s.resourceId) || 'miner');
       }
-      if (minerTier && kind === 'miner') tierSelect.value = minerTier;
-      if (normal !== undefined && inputs.normal) inputs.normal.value = String(normal);
+      if (s.minerTier && kind === 'miner') tierSelect.value = s.minerTier;
+      if (inputs.impure && s.impure != null) inputs.impure.value = String(s.impure);
+      if (inputs.normal && s.normal != null) inputs.normal.value = String(s.normal);
+      if (inputs.pure && s.pure != null) inputs.pure.value = String(s.pure);
+      if (inputs.count && s.count != null) inputs.count.value = String(s.count);
+      pct = Math.round(clampPct(Number(s.overclock) || 100));
+      ocInput.value = String(pct);
+      ocSlider.value = String(pct);
       refresh();
     },
   };
@@ -424,6 +443,9 @@ function makeTargetRow(itemOptions, onRowChange) {
     getItemId: () => picker.getValue(),
     getRate: () => Math.max(0, Number(rateInput.value) || 0),
     removeBtn,
+    getState: () => ({ itemId: picker.getValue(), rate: Math.max(0, Number(rateInput.value) || 0) }),
+    setItem: (id) => picker.setValue(id),
+    setRate: (v) => { rateInput.value = String(v); },
   };
 }
 
@@ -442,15 +464,18 @@ function makeMaxTargetRow(itemOptions, onRowChange) {
   row.appendChild(removeBtn);
   picker.onSelect(onRowChange);
   weightInput.addEventListener('input', onRowChange);
+  const getWeight = () => {
+    const w = Number(weightInput.value);
+    return Number.isFinite(w) && w > 0 ? w : 1;
+  };
   return {
     el: row,
     removeBtn,
     getItemId: () => picker.getValue(),
-    getWeight: () => {
-      const w = Number(weightInput.value);
-      return Number.isFinite(w) && w > 0 ? w : 1;
-    },
+    getWeight,
     setItem: (id) => picker.setValue(id),
+    setWeight: (w) => { weightInput.value = String(w); },
+    getState: () => ({ itemId: picker.getValue(), weight: getWeight() }),
   };
 }
 
@@ -473,6 +498,7 @@ function makeMaxTargetRow(itemOptions, onRowChange) {
 export function buildInputs(dataset, sidebarEl) {
   const listeners = [];
   function emitChange() {
+    saveState();
     for (const cb of listeners) cb();
   }
 
@@ -511,16 +537,17 @@ export function buildInputs(dataset, sidebarEl) {
   sidebarEl.appendChild(resourceRowsEl);
 
   let resourceRows = [];
-  function addResourceRow(seed) {
+  function addResourceRow(state) {
     const row = makeResourceRow(resourceOptions, emitChange);
     row.removeBtn.addEventListener('click', () => {
       resourceRows = resourceRows.filter((r) => r !== row);
       row.el.remove();
       emitChange();
     });
-    if (seed) row.seed(seed);
+    if (state) row.restore(state);
     resourceRows.push(row);
     resourceRowsEl.appendChild(row.el);
+    return row;
   }
 
   const addResourceBtn = el('button');
@@ -585,16 +612,16 @@ export function buildInputs(dataset, sidebarEl) {
   const maxRowsEl = el('div');
   maxSection.appendChild(maxRowsEl);
   let maxRows = [];
-  function addMaxRow(seedItemId) {
+  function addMaxRow() {
     const row = makeMaxTargetRow(allItems, emitChange);
     row.removeBtn.addEventListener('click', () => {
       maxRows = maxRows.filter((r) => r !== row);
       row.el.remove();
       emitChange();
     });
-    if (seedItemId) row.setItem(seedItemId);
     maxRows.push(row);
     maxRowsEl.appendChild(row.el);
+    return row;
   }
   const addMaxBtn = el('button');
   addMaxBtn.type = 'button';
@@ -621,6 +648,7 @@ export function buildInputs(dataset, sidebarEl) {
     });
     targetRows.push(row);
     targetRowsEl.appendChild(row.el);
+    return row;
   }
   const addTargetBtn = el('button');
   addTargetBtn.type = 'button';
@@ -761,9 +789,69 @@ export function buildInputs(dataset, sidebarEl) {
 
     emitChange();
   }
-  resetBtn.addEventListener('click', reset);
+  resetBtn.addEventListener('click', () => {
+    if (window.confirm('Reset all inputs? This clears your current build.')) reset();
+  });
 
-  // Start empty — no resource or target rows are seeded.
+  // --- State persistence: survive an accidental refresh -------------------
+  function serialize() {
+    return {
+      resources: resourceRows.map((r) => r.getState()),
+      mode: modeSelect.value,
+      maxRows: maxRows.map((r) => r.getState()),
+      targetRows: targetRows.map((r) => r.getState()),
+      shardBudget: readCount(shardInput),
+      beltTier: beltSelect.value,
+      pipeTier: pipeSelect.value,
+      noWaste: noWasteInput.checked,
+      altOff: altRowEntries.filter((e) => !e.cb.checked).map((e) => e.id),
+    };
+  }
+  function saveState() {
+    try { localStorage.setItem(STATE_KEY, JSON.stringify(serialize())); } catch { /* storage unavailable */ }
+  }
+  // Rebuild the UI from a saved state without firing change events; the caller
+  // (main.js) recomputes once afterwards. Unknown ids are skipped so a dataset
+  // bump degrades gracefully.
+  function restoreState(s) {
+    modeSelect.value = s.mode === 'targets' ? 'targets' : 'max';
+    const isMax = modeSelect.value !== 'targets';
+    maxSection.style.display = isMax ? '' : 'none';
+    targetsSection.style.display = isMax ? 'none' : '';
+    shardInput.value = String(s.shardBudget ?? 0);
+    if (BELT_TIERS.includes(s.beltTier)) beltSelect.value = s.beltTier;
+    if (PIPE_TIERS.includes(s.pipeTier)) pipeSelect.value = s.pipeTier;
+    noWasteInput.checked = !!s.noWaste;
+    const off = new Set(s.altOff || []);
+    for (const e of altRowEntries) {
+      const on = !off.has(e.id);
+      e.cb.checked = on;
+      altChecked.set(e.id, on);
+    }
+    updateSummary();
+    const validRes = new Set(resourceOptions.map((o) => o.id));
+    const validItem = new Set(allItems.map((o) => o.id));
+    for (const rs of s.resources || []) {
+      if (rs && rs.resourceId && !validRes.has(rs.resourceId)) continue;
+      addResourceRow(rs);
+    }
+    for (const ms of s.maxRows || []) {
+      const row = addMaxRow();
+      if (ms && ms.itemId && validItem.has(ms.itemId)) row.setItem(ms.itemId);
+      row.setWeight(ms && ms.weight != null ? ms.weight : 1);
+    }
+    for (const ts of s.targetRows || []) {
+      const row = addTargetRow();
+      if (ts && ts.itemId && validItem.has(ts.itemId)) row.setItem(ts.itemId);
+      row.setRate(ts && ts.rate != null ? ts.rate : 0);
+    }
+  }
+
+  let savedState = null;
+  try { savedState = localStorage.getItem(STATE_KEY); } catch { savedState = null; }
+  if (savedState) {
+    try { restoreState(JSON.parse(savedState)); } catch { /* corrupt state: start empty */ }
+  }
 
   // --- readRequest ----------------------------------------------------------
   function readRequest() {
@@ -775,6 +863,10 @@ export function buildInputs(dataset, sidebarEl) {
       if (!id) continue;
       caps.set(id, (caps.get(id) || 0) + row.currentRate());
     }
+    // Water is effectively unlimited (extractors), so auto-include it — this
+    // lets residual/diluted recipes close byproduct loops without the user
+    // adding a Water row. An explicit Water row (with its own cap) overrides.
+    if (!caps.has(WATER_ID)) caps.set(WATER_ID, Infinity);
 
     const enabledRecipeIds = new Set();
     for (const r of dataset.recipes) {

@@ -173,10 +173,14 @@ export function computePlan(dataset, req) {
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const machinesById = new Map(phys.perRecipe.map((pr) => [pr.recipeId, pr.machines]));
 
-  const resourceMeters = [...caps].map(([itemId, available]) => {
-    const used = Math.max(0, usage.get(itemId) || 0);
-    return { itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), used: fmt2(used), available, pct: available ? Math.min(1, used / available) : 0, binding: available > 0 && used >= available - 1e-6, fluid: fluidOf(dataset, itemId) };
-  });
+  const resourceMeters = [...caps]
+    // Hide an unlimited (auto-water) resource unless the build actually draws it.
+    .filter(([itemId, available]) => Number.isFinite(available) || (usage.get(itemId) || 0) > 1e-6)
+    .map(([itemId, available]) => {
+      const used = Math.max(0, usage.get(itemId) || 0);
+      const unlimited = !Number.isFinite(available);
+      return { itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), used: fmt2(used), available, unlimited, pct: unlimited || !(available > 0) ? 0 : Math.min(1, used / available), binding: !unlimited && available > 0 && used >= available - 1e-6, fluid: fluidOf(dataset, itemId) };
+    });
 
   const buildRows = phys.perRecipe
     .map((pr) => {
