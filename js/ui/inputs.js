@@ -516,7 +516,7 @@ export function buildInputs(dataset, sidebarEl) {
 
   const modeSelect = el('select');
   for (const [value, label] of [
-    ['max', 'Maximize one part'],
+    ['max', 'Maximize'],
     ['targets', 'Target rates'],
   ]) {
     const opt = el('option');
@@ -642,9 +642,21 @@ export function buildInputs(dataset, sidebarEl) {
       updateSummary();
       emitChange();
     });
+    label.appendChild(cb);
+    // Icon of the recipe's primary output (dropped silently if it has none).
+    const outSlug = dataset.items.get(r.outputs?.[0]?.itemId)?.slug;
+    const url = iconUrl(outSlug);
+    if (url) {
+      const img = el('img', 'icon');
+      img.loading = 'lazy';
+      img.src = url;
+      img.alt = '';
+      img.onerror = () => img.remove();
+      label.appendChild(img);
+    }
     const span = el('span');
     span.textContent = r.name;
-    label.append(cb, span);
+    label.appendChild(span);
     altListEl.appendChild(label);
     return { id: r.id, name: r.name, rowEl: label, cb };
   });
