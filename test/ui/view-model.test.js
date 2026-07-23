@@ -36,3 +36,33 @@ test('computePlan (targets mode) reports shortfalls', () => {
   assert.equal(view.feasible, false);
   assert.ok(view.shortfalls.some((s) => s.itemId === 'mf' && s.amount > 0));
 });
+
+test('computePlan (max mode) builds a tiered flow graph', () => {
+  const view = computePlan(ironChain, {
+    mode: 'max', caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES,
+    targetItemId: 'mf', shardBudget: 0, beltTier: 'Mk2',
+  });
+  const g = view.graph;
+  assert.equal(g.nodes.length, 7); // 6 recipes + 1 raw (ore)
+  const rawOre = g.nodes.find((n) => n.id === 'raw:ore');
+  assert.ok(rawOre && rawOre.tier === 0 && rawOre.isRaw);
+  const ingot = g.nodes.find((n) => n.id === 'ingot');
+  const mf = g.nodes.find((n) => n.id === 'mf');
+  assert.ok(ingot.tier < mf.tier, 'mf is downstream of ingot');
+  assert.ok(g.tiers >= 4);
+  assert.ok(g.edges.some((e) => e.from === 'raw:ore' && e.to === 'ingot' && e.itemId === 'ore'));
+});
+
+test('computePlan (max mode, multiple targets) maximizes balanced sets', () => {
+  const view = computePlan(ironChain, {
+    mode: 'max', caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'mf', weight: 1 }, { itemId: 'rotor', weight: 1 }],
+    shardBudget: 0, beltTier: 'Mk2',
+  });
+  assert.equal(view.feasible, true);
+  assert.match(view.headline, /sets\/min/);
+  assert.equal(view.perPart.length, 2);
+  const mf = view.perPart.find((p) => p.itemId === 'mf');
+  const rotor = view.perPart.find((p) => p.itemId === 'rotor');
+  assert.ok(approx(mf.rate, rotor.rate, 1e-2), 'balanced: equal per-part rates');
+});
