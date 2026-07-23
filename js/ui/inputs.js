@@ -97,17 +97,12 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
   input.style.boxSizing = 'border-box';
   wrap.appendChild(input);
 
-  const list = el('div');
+  const list = el('div', 'search-list');
   list.style.position = 'absolute';
-  list.style.top = '100%';
+  list.style.top = 'calc(100% + 4px)';
   list.style.left = '0';
   list.style.right = '0';
   list.style.zIndex = '20';
-  list.style.background = 'var(--surface)';
-  list.style.border = '1px solid var(--border)';
-  list.style.borderRadius = '0.5rem';
-  list.style.maxHeight = '14rem';
-  list.style.overflowY = 'auto';
   list.style.display = 'none';
   wrap.appendChild(list);
 
@@ -132,28 +127,15 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
     currentMatches = (q ? sorted.filter((o) => o.name.toLowerCase().includes(q)) : sorted).slice(0, 50);
 
     if (currentMatches.length === 0) {
-      const empty = el('div');
+      const empty = el('div', 'search-empty');
       empty.textContent = 'No matches';
-      empty.style.padding = '0.4rem 0.6rem';
-      empty.style.color = 'var(--ink-muted)';
       list.appendChild(empty);
       return;
     }
 
     for (const opt of currentMatches) {
-      const btn = el('button');
+      const btn = el('button', 'search-option');
       btn.type = 'button';
-      btn.style.display = 'flex';
-      btn.style.alignItems = 'center';
-      btn.style.gap = '0.4rem';
-      btn.style.width = '100%';
-      btn.style.padding = '0.35rem 0.6rem';
-      btn.style.background = 'transparent';
-      btn.style.border = 'none';
-      btn.style.textAlign = 'left';
-      btn.style.cursor = 'pointer';
-      btn.style.color = 'inherit';
-      btn.style.font = 'inherit';
       if (showIcon) {
         const url = iconUrl(opt.slug);
         if (url) {
@@ -227,42 +209,32 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
  * `readRequest`.
  */
 function makeResourceRow(resourceOptions, onRowChange) {
-  const row = el('div');
-  row.style.display = 'flex';
-  row.style.flexWrap = 'wrap';
-  row.style.gap = '0.4rem';
-  row.style.alignItems = 'flex-end';
-  row.style.padding = '0.5rem';
-  row.style.border = '1px solid var(--border)';
-  row.style.borderRadius = '0.5rem';
-  row.style.marginBottom = '0.5rem';
+  const row = el('div', 'res-card');
 
+  const topRow = el('div', 'res-card__row');
   const picker = createSearchSelect({ options: resourceOptions, placeholder: 'Resource…' });
   picker.el.style.flex = '1 1 9rem';
-  row.appendChild(picker.el);
-
   const tierSelect = makeTierSelect(MINER_TIERS, 'Mk1');
-  row.appendChild(tierSelect);
+  topRow.append(picker.el, tierSelect);
+  row.appendChild(topRow);
 
-  const impureInput = numberInput({ value: 0 });
-  const normalInput = numberInput({ value: 0 });
-  const pureInput = numberInput({ value: 0 });
-  row.appendChild(fieldRow('Impure', impureInput));
-  row.appendChild(fieldRow('Normal', normalInput));
-  row.appendChild(fieldRow('Pure', pureInput));
+  const nodesRow = el('div', 'res-card__nodes');
+  const impureInput = numberInput({ value: 0, width: '100%' });
+  const normalInput = numberInput({ value: 0, width: '100%' });
+  const pureInput = numberInput({ value: 0, width: '100%' });
+  nodesRow.append(fieldRow('Impure', impureInput), fieldRow('Normal', normalInput), fieldRow('Pure', pureInput));
+  row.appendChild(nodesRow);
 
-  const overrideInput = numberInput({ value: '', min: 0, step: 'any', placeholder: 'override /min', width: '6rem' });
-  row.appendChild(fieldRow('Override', overrideInput));
-
-  const rateSpan = el('span');
-  rateSpan.style.fontSize = '0.8rem';
-  rateSpan.style.minWidth = '5rem';
-  row.appendChild(rateSpan);
-
+  const footRow = el('div', 'res-card__row');
+  const overrideInput = numberInput({ value: '', min: 0, step: 'any', placeholder: 'override /min', width: '7rem' });
+  footRow.appendChild(fieldRow('Override', overrideInput));
+  const rateSpan = el('span', 'res-card__rate');
+  footRow.appendChild(rateSpan);
   const removeBtn = el('button');
   removeBtn.type = 'button';
   removeBtn.textContent = 'Remove';
-  row.appendChild(removeBtn);
+  footRow.appendChild(removeBtn);
+  row.appendChild(footRow);
 
   function config() {
     const cfg = {
