@@ -287,6 +287,44 @@ function renderDiagramSection(graph) {
 }
 
 /**
+ * "Refinement options" — for each leftover byproduct (surplus), the recipes
+ * that could consume it, each rendered as a mini flow diagram scaled to the
+ * surplus rate so you can see what you'd get.
+ */
+function renderRefinements(refinements) {
+  const wrap = el('section');
+  const heading = el('h3');
+  heading.textContent = 'Refinement options';
+  wrap.appendChild(heading);
+  const hint = el('p', 'hint');
+  hint.textContent = 'Ways to use each leftover byproduct — enable the recipe and add its product as a part.';
+  wrap.appendChild(hint);
+
+  for (const ref of refinements) {
+    const group = el('div', 'refine-group');
+    const head = el('div', 'refine-group__head');
+    head.appendChild(makeIcon(ref.slug, ref.name, ref.fluid ? 'fluid' : 'item'));
+    const label = el('span');
+    label.textContent = `${ref.name} surplus · ${fmt1(ref.rate)}${ref.fluid ? ' m³' : ''}/min`;
+    head.appendChild(label);
+    group.appendChild(head);
+
+    for (const opt of ref.options) {
+      const card = el('div', 'refine-option');
+      const title = el('div', 'refine-option__title');
+      title.textContent = opt.recipeName;
+      card.appendChild(title);
+      const scroll = el('div', 'diagram-scroll');
+      renderDiagram(scroll, opt.graph);
+      card.appendChild(scroll);
+      group.appendChild(card);
+    }
+    wrap.appendChild(group);
+  }
+  return wrap;
+}
+
+/**
  * Render a PlanView into rootEl. Idempotent: clears rootEl then rebuilds.
  * All item/recipe/building names are inserted via textContent — never
  * innerHTML — so untrusted dataset strings can't inject markup.
@@ -313,5 +351,9 @@ export function renderResults(rootEl, planView) {
 
   if (planView.graph && planView.graph.nodes.length > 0) {
     rootEl.appendChild(renderDiagramSection(planView.graph));
+  }
+
+  if (planView.refinements && planView.refinements.length > 0) {
+    rootEl.appendChild(renderRefinements(planView.refinements));
   }
 }

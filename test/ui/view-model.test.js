@@ -146,3 +146,33 @@ test('computePlan handles an unlimited (Infinity) resource cap', () => {
   assert.ok(w && w.unlimited === true, 'unlimited resource flagged');
   assert.ok(approx(w.used, 60), 'unlimited resource still reports usage');
 });
+
+test('computePlan offers refinement options for a surplus byproduct', () => {
+  const ds = {
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore', liquid: false }],
+      ['main', { id: 'main', name: 'Main', slug: 'main', liquid: false }],
+      ['byp', { id: 'byp', name: 'Byproduct', slug: 'byp', liquid: false }],
+      ['ref', { id: 'ref', name: 'Refined', slug: 'ref', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'Machine', slug: 'b', basePowerMW: 10, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['ore']),
+    recipes: [
+      { id: 'rec', name: 'Main', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 60 }], outputs: [{ itemId: 'main', perMin: 30 }, { itemId: 'byp', perMin: 20 }] },
+      { id: 'refrec', name: 'Refine Byproduct', buildingId: 'b', alternate: false, inputs: [{ itemId: 'byp', perMin: 20 }], outputs: [{ itemId: 'ref', perMin: 10 }] },
+    ],
+  };
+  const view = computePlan(ds, {
+    mode: 'max', caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['rec']),
+    targets: [{ itemId: 'main', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  const refine = view.refinements.find((r) => r.itemId === 'byp');
+  assert.ok(refine, 'surplus byproduct has a refinements entry');
+  assert.ok(approx(refine.rate, 20), 'refinement is scoped to the surplus rate');
+  const opt = refine.options.find((o) => o.recipeId === 'refrec');
+  assert.ok(opt, 'the consuming recipe is offered as an option');
+  const inByp = opt.graph.nodes.find((n) => n.id === 'in:byp');
+  assert.ok(inByp && inByp.isInput && approx(inByp.rate, 20), 'option consumes the full surplus');
+  const outRef = opt.graph.nodes.find((n) => n.id === 'out:ref');
+  assert.ok(outRef && outRef.isOutput && approx(outRef.rate, 10), 'option output scaled to the surplus (20 byp -> 10 refined)');
+});

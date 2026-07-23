@@ -733,6 +733,36 @@ input[type="range"]:focus-visible {
   stroke-dasharray: 5 3;
 }
 
+/* Input source node in a refinement mini-diagram. */
+.diagram-node--input .diagram-box {
+  stroke: var(--ink-muted);
+}
+
+/* Refinement options — a mini-diagram per leftover byproduct. */
+.refine-group {
+  margin: 0.25rem 0 1.5rem;
+}
+
+.refine-group__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 0.6rem;
+}
+
+.refine-option {
+  margin-bottom: 0.9rem;
+}
+
+.refine-option__title {
+  font-weight: 600;
+  color: var(--ink-2);
+  font-size: 0.9rem;
+  margin: 0 0 0.35rem 0.15rem;
+}
+
 
 .diagram-title {
   fill: var(--ink);

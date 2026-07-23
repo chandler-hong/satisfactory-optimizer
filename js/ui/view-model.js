@@ -136,6 +136,59 @@ function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
   return { nodes, edges: richEdges, tiers };
 }
 
+/**
+ * A single refinement option: one recipe that consumes `itemId`, scaled to eat
+ * `surplusRate`/min of it, as a mini flow graph (inputs → recipe → outputs).
+ */
+function optionGraph(dataset, r, itemId, surplusRate) {
+  const inEntry = r.inputs.find((i) => i.itemId === itemId);
+  const inPerMin = inEntry ? inEntry.perMin : 0;
+  const machines = inPerMin > 0 ? surplusRate / inPerMin : 0;
+  const b = dataset.buildings.get(r.buildingId);
+  const recId = `rec:${r.id}`;
+  const nodes = [];
+  const edges = [];
+  for (const inp of r.inputs) {
+    const rate = inp.perMin * machines;
+    nodes.push({ id: `in:${inp.itemId}`, tier: 0, isInput: true, itemId: inp.itemId, name: nameOf(dataset, inp.itemId), slug: slugOf(dataset, inp.itemId), rate, fluid: fluidOf(dataset, inp.itemId) });
+    edges.push({ from: `in:${inp.itemId}`, to: recId, itemId: inp.itemId, rate });
+  }
+  nodes.push({ id: recId, tier: 1, recipeName: r.name, buildingName: b?.name ?? '', buildingSlug: b?.slug, machines: fmt1(machines) });
+  for (const o of r.outputs) {
+    const rate = o.perMin * machines;
+    nodes.push({ id: `out:${o.itemId}`, tier: 2, isOutput: true, itemId: o.itemId, name: nameOf(dataset, o.itemId), slug: slugOf(dataset, o.itemId), rate, fluid: fluidOf(dataset, o.itemId) });
+    edges.push({ from: recId, to: `out:${o.itemId}`, itemId: o.itemId, rate });
+  }
+  const richEdges = edges.map((e) => ({ ...e, itemName: nameOf(dataset, e.itemId), itemSlug: slugOf(dataset, e.itemId), fluid: fluidOf(dataset, e.itemId) }));
+  return { recipeId: r.id, recipeName: r.name, alternate: !!r.alternate, graph: { nodes, edges: richEdges, tiers: 3 } };
+}
+
+/**
+ * For every surplus (unrefined byproduct) node in `graph`, the ways to consume
+ * it: each recipe that takes it as an input, scaled to the surplus rate. Base
+ * recipes first, then alternates; capped so the results stay readable.
+ */
+function buildRefinements(dataset, graph) {
+  const surplus = graph.nodes.filter((n) => n.isSurplus);
+  if (surplus.length === 0) return [];
+  const consumersOf = new Map();
+  for (const r of dataset.recipes) {
+    for (const inp of r.inputs) {
+      if (!consumersOf.has(inp.itemId)) consumersOf.set(inp.itemId, []);
+      consumersOf.get(inp.itemId).push(r);
+    }
+  }
+  return surplus
+    .map((s) => {
+      const recipes = (consumersOf.get(s.itemId) || [])
+        .slice()
+        .sort((a, b) => (a.alternate === b.alternate ? a.name.localeCompare(b.name) : a.alternate ? 1 : -1))
+        .slice(0, 6);
+      return { itemId: s.itemId, name: s.name, slug: s.slug, rate: s.rate, fluid: s.fluid, options: recipes.map((r) => optionGraph(dataset, r, s.itemId, s.rate)) };
+    })
+    .filter((ref) => ref.options.length > 0);
+}
+
 /** Run the engine for `req` and shape a render-ready PlanView. */
 export function computePlan(dataset, req) {
   const { mode, caps, enabledRecipeIds, shardBudget = 0, beltTier = 'Mk4', pipeTier = 'Mk2', noWaste = false } = req;
@@ -204,6 +257,8 @@ export function computePlan(dataset, req) {
 
   const beltRows = belts.map((f) => ({ itemId: f.itemId, name: nameOf(dataset, f.itemId), slug: slugOf(dataset, f.itemId), rate: f.rate, lines: f.lines, tier: f.tier, fluid: f.fluid, saturated: f.saturated }));
 
+  const graph = buildGraph(dataset, recipeRates, machinesById, mode === 'targets' ? Object.keys(req.targets || {}) : perPart.map((p) => p.itemId));
+
   return {
     feasible,
     headline,
@@ -213,6 +268,7 @@ export function computePlan(dataset, req) {
     resourceMeters,
     buildRows,
     beltRows,
-    graph: buildGraph(dataset, recipeRates, machinesById, mode === 'targets' ? Object.keys(req.targets || {}) : perPart.map((p) => p.itemId)),
+    graph,
+    refinements: buildRefinements(dataset, graph),
   };
 }

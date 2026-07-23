@@ -22,12 +22,13 @@ function rateStr(rate, fluid) {
   return `${Math.round(rate * 10) / 10}${fluid ? ' m³' : ''}/min`;
 }
 function titleOf(n) {
-  return n.isRaw || n.isOutput || n.isSurplus ? n.name : n.recipeName;
+  return n.isRaw || n.isOutput || n.isSurplus || n.isInput ? n.name : n.recipeName;
 }
 function subOf(n) {
   if (n.isRaw) return 'raw resource';
   if (n.isOutput) return `output · ${rateStr(n.rate, n.fluid)}`;
   if (n.isSurplus) return `surplus · ${rateStr(n.rate, n.fluid)}`;
+  if (n.isInput) return rateStr(n.rate, n.fluid);
   return `${n.buildingName} ×${n.machines}`;
 }
 
@@ -186,11 +187,12 @@ export function renderDiagram(container, graph) {
     const cls = n.isRaw ? 'diagram-node diagram-node--raw'
       : n.isOutput ? 'diagram-node diagram-node--output'
       : n.isSurplus ? 'diagram-node diagram-node--surplus'
+      : n.isInput ? 'diagram-node diagram-node--input'
       : 'diagram-node';
     const g = svg('g', { class: cls, transform: `translate(${p.x} ${p.y})` });
     g.appendChild(svg('rect', { x: 0, y: 0, width: p.w, height: BOX_H, rx: 8, class: 'diagram-box' }));
 
-    const url = iconUrl(n.isRaw || n.isOutput || n.isSurplus ? n.slug : n.buildingSlug);
+    const url = iconUrl(n.isRaw || n.isOutput || n.isSurplus || n.isInput ? n.slug : n.buildingSlug);
     let tx = PAD_X;
     if (url) {
       g.appendChild(svg('image', { x: PAD_X, y: (BOX_H - ICON) / 2, width: ICON, height: ICON, href: url, class: 'diagram-icon' }));
