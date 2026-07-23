@@ -2,6 +2,7 @@ import { loadDataset } from './data/loader.js';
 import { computePlan } from './ui/view-model.js';
 import { renderResults } from './ui/render.js';
 import { buildInputs } from './ui/inputs.js';
+import { buildPower } from './ui/power.js';
 
 const THEME_KEY = 'theme';
 
@@ -42,6 +43,19 @@ function toggleTheme() {
 restoreTheme();
 
 document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
+
+// View tabs: Factory optimizer vs the standalone Power generation calculator.
+function showView(view) {
+  const isPower = view === 'power';
+  const factory = document.getElementById('view-factory');
+  const power = document.getElementById('view-power');
+  if (factory) factory.hidden = isPower;
+  if (power) power.hidden = !isPower;
+  document.getElementById('tab-factory')?.classList.toggle('is-active', !isPower);
+  document.getElementById('tab-power')?.classList.toggle('is-active', isPower);
+}
+document.getElementById('tab-factory')?.addEventListener('click', () => showView('factory'));
+document.getElementById('tab-power')?.addEventListener('click', () => showView('power'));
 
 /** Debounce: delay invoking `fn` until `wait` ms after the last call. */
 function debounce(fn, wait) {
@@ -95,6 +109,9 @@ async function boot() {
   }
 
   const { readRequest, onChange } = buildInputs(dataset, sidebarEl);
+
+  const powerEl = document.getElementById('view-power');
+  if (powerEl) buildPower(dataset, powerEl);
 
   function recompute() {
     const req = readRequest();

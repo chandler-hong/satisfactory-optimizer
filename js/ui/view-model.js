@@ -143,7 +143,9 @@ function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
 function optionGraph(dataset, r, itemId, surplusRate) {
   const inEntry = r.inputs.find((i) => i.itemId === itemId);
   const inPerMin = inEntry ? inEntry.perMin : 0;
-  const machines = inPerMin > 0 ? surplusRate / inPerMin : 0;
+  // Whole machines only, rounded down — you can't build a fraction of a machine;
+  // at least one so the option is meaningful.
+  const machines = inPerMin > 0 ? Math.max(1, Math.floor(surplusRate / inPerMin)) : 1;
   const b = dataset.buildings.get(r.buildingId);
   const recId = `rec:${r.id}`;
   const nodes = [];
@@ -153,7 +155,7 @@ function optionGraph(dataset, r, itemId, surplusRate) {
     nodes.push({ id: `in:${inp.itemId}`, tier: 0, isInput: true, itemId: inp.itemId, name: nameOf(dataset, inp.itemId), slug: slugOf(dataset, inp.itemId), rate, fluid: fluidOf(dataset, inp.itemId) });
     edges.push({ from: `in:${inp.itemId}`, to: recId, itemId: inp.itemId, rate });
   }
-  nodes.push({ id: recId, tier: 1, recipeName: r.name, buildingName: b?.name ?? '', buildingSlug: b?.slug, machines: fmt1(machines) });
+  nodes.push({ id: recId, tier: 1, recipeName: r.name, buildingName: b?.name ?? '', buildingSlug: b?.slug, machines });
   for (const o of r.outputs) {
     const rate = o.perMin * machines;
     nodes.push({ id: `out:${o.itemId}`, tier: 2, isOutput: true, itemId: o.itemId, name: nameOf(dataset, o.itemId), slug: slugOf(dataset, o.itemId), rate, fluid: fluidOf(dataset, o.itemId) });

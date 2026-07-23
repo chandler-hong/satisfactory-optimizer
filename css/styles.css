@@ -380,7 +380,9 @@ table {
 .app input[type="text"],
 .app input[type="number"],
 .app input[type="search"],
-.app select {
+.app select,
+.power-view input[type="number"],
+.power-view select {
   font: inherit;
   color: var(--ink);
   background: var(--surface);
@@ -397,19 +399,24 @@ table {
 .app input[type="text"]:hover,
 .app input[type="number"]:hover,
 .app input[type="search"]:hover,
-.app select:hover { border-color: var(--ink-muted); }
+.app select:hover,
+.power-view input[type="number"]:hover,
+.power-view select:hover { border-color: var(--ink-muted); }
 
 .app input[type="text"]:focus-visible,
 .app input[type="number"]:focus-visible,
 .app input[type="search"]:focus-visible,
-.app select:focus-visible {
+.app select:focus-visible,
+.power-view input[type="number"]:focus-visible,
+.power-view select:focus-visible {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 /* Selects: custom chevron (the native one is gone via appearance:none). */
-.app select {
+.app select,
+.power-view select {
   cursor: pointer;
   padding-right: 2rem;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%239aa3ad' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1.5 6 6.5 11 1.5'/></svg>");
@@ -664,7 +671,9 @@ input[type="range"]:focus-visible {
 
 /* Notice that alternates are off by default. */
 .alt-warning {
-  margin: 0 0 0.5rem;
+  margin: 1.25rem 0 0.6rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
   font-size: 0.78rem;
   line-height: 1.4;
   color: var(--warning);
@@ -803,4 +812,120 @@ input[type="range"]:focus-visible {
 
 .sidebar button.reset-btn:hover {
   background: color-mix(in srgb, var(--critical) 85%, #000);
+}
+
+/* ==========================================================================
+   View tabs (Factory / Power) + Power generation view
+   ========================================================================== */
+
+.viewtabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem 0;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.viewtab {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.viewtab:hover {
+  color: var(--ink);
+  border-color: var(--ink-muted);
+}
+
+.viewtab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.power-view {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 2rem;
+}
+
+.power-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.power-title {
+  color: var(--ink);
+}
+
+.power-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  margin-bottom: 0.75rem;
+}
+
+.power-supply-head {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  margin: 1rem 0 0.5rem;
+}
+
+.power-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-end;
+}
+
+.power-nodes .power-field {
+  margin-bottom: 0;
+}
+
+.power-result {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.power-big {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.power-gen {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0.25rem 0 0.75rem;
+}
+
+.power-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.power-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink-2);
+}
+
+.power-empty {
+  color: var(--ink-muted);
 }

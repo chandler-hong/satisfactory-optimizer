@@ -14,6 +14,7 @@ export function normalize(raw) {
       name: it.name,
       slug: it.slug,
       liquid: !!it.liquid,
+      energyValue: typeof it.energyValue === 'number' ? it.energyValue : 0, // MJ; used for power-generator fuel rates
     });
   }
 
@@ -61,5 +62,27 @@ export function normalize(raw) {
     });
   }
 
-  return { items, buildings, recipes, rawResourceIds };
+  // Power generators (fuel options, MW, water/byproduct per fuel). Name/slug
+  // come from the matching building. Consumption rates are derived at use time:
+  //   fuel/min  = powerMW / item.energyValue * 60
+  //   water/min = powerMW * waterToPowerRatio * 0.06   (when supplemental=water)
+  //   byproduct/min = fuel/min * byproductAmount
+  const generators = Object.values(raw.generators || {}).map((g) => {
+    const b = buildings.get(g.className);
+    return {
+      id: g.className,
+      name: b?.name ?? g.className,
+      slug: b?.slug,
+      powerMW: g.powerProduction || 0,
+      waterToPowerRatio: g.waterToPowerRatio || 0,
+      fuels: (g.fuels || []).map((f) => ({
+        itemId: f.item,
+        supplementalItemId: f.supplementalItem || null,
+        byproductItemId: f.byproduct || null,
+        byproductAmount: f.byproductAmount || 0,
+      })),
+    };
+  });
+
+  return { items, buildings, recipes, rawResourceIds, generators };
 }

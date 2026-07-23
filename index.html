@@ -14,13 +14,22 @@
     </button>
   </header>
 
-  <div class="app">
+  <nav class="viewtabs" aria-label="Views">
+    <button id="tab-factory" class="viewtab is-active" type="button">🏭 Factory Optimizer</button>
+    <button id="tab-power" class="viewtab" type="button">⚡ Power Generation</button>
+  </nav>
+
+  <div class="app" id="view-factory">
     <aside class="sidebar" id="inputs">
-      <!-- Task 5: input controls (resource caps, shard budget, belt/pipe tier, recipes, mode, targets) -->
+      <!-- input controls (resource caps, shard budget, belt/pipe tier, recipes, mode, targets) -->
     </aside>
     <main class="results" id="results">
-      <!-- Task 4: rendered PlanView (tiles, resource meters, build table, belt list) -->
+      <!-- rendered PlanView (tiles, resource meters, build table, belt list, diagram) -->
     </main>
+  </div>
+
+  <div class="power-view" id="view-power" hidden>
+    <!-- power generation calculator (js/ui/power.js) -->
   </div>
 
   <footer class="site-footer">

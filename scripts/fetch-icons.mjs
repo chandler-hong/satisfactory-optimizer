@@ -22,6 +22,7 @@ for (const bid of new Set(ds.recipes.map((r) => r.buildingId))) {
   const b = ds.buildings.get(bid);
   if (b?.slug) slugs.add(b.slug);
 }
+for (const g of ds.generators || []) if (g.slug) slugs.add(g.slug); // power generators
 const list = [...slugs];
 console.log(`Collected ${list.length} unique slugs.`);
 
