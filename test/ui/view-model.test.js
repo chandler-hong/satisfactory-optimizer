@@ -71,3 +71,27 @@ test('computePlan (max mode, multiple targets) maximizes balanced sets', () => {
   const rotor = view.perPart.find((p) => p.itemId === 'rotor');
   assert.ok(approx(mf.rate, rotor.rate, 1e-2), 'balanced: equal per-part rates');
 });
+
+test('computePlan surfaces m³ for fluids (headline + flags)', () => {
+  const fuelChain = {
+    items: new Map([
+      ['oil', { id: 'oil', name: 'Crude Oil', slug: 'oil', liquid: true }],
+      ['fuel', { id: 'fuel', name: 'Fuel', slug: 'fuel', liquid: true }],
+    ]),
+    buildings: new Map([['ref', { id: 'ref', name: 'Refinery', slug: 'ref', basePowerMW: 30, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['oil']),
+    recipes: [
+      { id: 'fuelrec', name: 'Fuel', buildingId: 'ref', alternate: false, inputs: [{ itemId: 'oil', perMin: 60 }], outputs: [{ itemId: 'fuel', perMin: 40 }] },
+    ],
+  };
+  const view = computePlan(fuelChain, {
+    mode: 'max', caps: new Map([['oil', 60]]), enabledRecipeIds: new Set(['fuelrec']),
+    targets: [{ itemId: 'fuel', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  assert.equal(view.feasible, true);
+  assert.match(view.headline, /m³/);              // "40 m³ Fuel/min", not "40 Fuel/min"
+  assert.equal(view.perPart[0].fluid, true);
+  assert.equal(view.resourceMeters.find((m) => m.itemId === 'oil').fluid, true);
+  const outFuel = view.graph.nodes.find((n) => n.id === 'out:fuel');
+  assert.ok(outFuel && outFuel.fluid === true, 'fluid output node flagged');
+});

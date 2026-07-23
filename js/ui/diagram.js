@@ -23,7 +23,7 @@ function titleOf(n) {
 }
 function subOf(n) {
   if (n.isRaw) return 'raw resource';
-  if (n.isOutput) return `output · ${Math.round(n.rate * 10) / 10}/min`;
+  if (n.isOutput) return `output · ${Math.round(n.rate * 10) / 10}${n.fluid ? ' m³' : ''}/min`;
   return `${n.buildingName} ×${n.machines}`;
 }
 

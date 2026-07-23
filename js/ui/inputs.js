@@ -334,8 +334,9 @@ function makeResourceRow(resourceOptions, onRowChange) {
   }
 
   function refresh() {
-    // Rate readout: at most 2 decimals, trailing zeros dropped.
-    rateSpan.textContent = `${round2(currentRate())}/min`;
+    // Rate readout: ≤2 decimals; fluids (oil/water/well) are measured in m³.
+    const unit = kind === 'miner' ? '/min' : ' m³/min';
+    rateSpan.textContent = `${round2(currentRate())}${unit}`;
   }
 
   function handleChange() {

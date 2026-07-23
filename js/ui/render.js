@@ -69,7 +69,7 @@ function renderShortfalls(shortfalls) {
   const list = el('ul');
   for (const s of shortfalls) {
     const li = el('li');
-    li.textContent = `${s.name} short by ${s.amount}/min`;
+    li.textContent = `${s.name} short by ${s.amount}${s.fluid ? ' m³' : ''}/min`;
     list.appendChild(li);
   }
   box.appendChild(list);
@@ -108,7 +108,7 @@ function renderMeterRow(m) {
   nameSpan.textContent = m.name;
   label.appendChild(nameSpan);
   const statsSpan = el('span');
-  statsSpan.textContent = `${m.used} / ${m.available} /min`;
+  statsSpan.textContent = `${m.used} / ${m.available}${m.fluid ? ' m³' : ''}/min`;
   label.appendChild(statsSpan);
   if (m.binding) {
     const chip = el('span', 'chip warning');
@@ -220,7 +220,7 @@ function renderBeltRow(b) {
   li.appendChild(nameSpan);
 
   const rateSpan = el('span');
-  rateSpan.textContent = `${fmt1(b.rate)}/min`;
+  rateSpan.textContent = `${fmt1(b.rate)}${b.fluid ? ' m³' : ''}/min`;
   li.appendChild(rateSpan);
 
   const chip = el('span', b.saturated ? 'chip chip--saturated' : 'chip');
@@ -262,7 +262,7 @@ function renderPerPart(perPart) {
     const chip = el('span', 'perpart__item');
     chip.appendChild(makeIcon(p.slug, p.name, 'item'));
     const label = el('span');
-    label.textContent = `${fmt1(p.rate)} ${p.name}/min`;
+    label.textContent = `${fmt1(p.rate)}${p.fluid ? ' m³' : ''} ${p.name}/min`;
     chip.appendChild(label);
     wrap.appendChild(chip);
   }

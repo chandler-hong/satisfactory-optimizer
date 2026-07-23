@@ -7,6 +7,7 @@ export const fmt2 = (x) => Math.round(x * 100) / 100;
 
 const nameOf = (dataset, id) => dataset.items.get(id)?.name ?? id;
 const slugOf = (dataset, id) => dataset.items.get(id)?.slug;
+const fluidOf = (dataset, id) => !!dataset.items.get(id)?.liquid;
 
 function rawUsage(dataset, recipeRates) {
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
@@ -118,7 +119,7 @@ function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
     const prods = producersOf.get(itemId) || [];
     if (net <= 1e-6 || prods.length === 0) continue;
     const outTier = Math.max(...prods.map((p) => tier.get(p) ?? 1)) + 1;
-    nodes.push({ id: `out:${itemId}`, tier: outTier, isOutput: true, itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), rate: net });
+    nodes.push({ id: `out:${itemId}`, tier: outTier, isOutput: true, itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), rate: net, fluid: fluidOf(dataset, itemId) });
     for (const p of prods) edges.push({ from: p, to: `out:${itemId}`, itemId, rate: net / prods.length });
   }
 
@@ -140,7 +141,7 @@ export function computePlan(dataset, req) {
     const r = hitTargets({ dataset, caps, enabledRecipeIds, targets: req.targets, noWaste });
     feasible = r.feasible;
     recipeRates = r.recipeRates;
-    shortfalls = [...r.shortfalls].map(([itemId, amount]) => ({ itemId, name: nameOf(dataset, itemId), amount: fmt2(amount) }));
+    shortfalls = [...r.shortfalls].map(([itemId, amount]) => ({ itemId, name: nameOf(dataset, itemId), amount: fmt2(amount), fluid: fluidOf(dataset, itemId) }));
     headline = feasible ? 'All target rates met' : `${shortfalls.length} target(s) short`;
   } else {
     // Maximize: one or more target parts as balanced (optionally weighted) sets.
@@ -152,9 +153,9 @@ export function computePlan(dataset, req) {
     const r = maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste });
     feasible = r.feasible;
     recipeRates = r.recipeRates;
-    perPart = r.perPart.map((p) => ({ itemId: p.itemId, name: nameOf(dataset, p.itemId), slug: slugOf(dataset, p.itemId), rate: fmt2(p.rate) }));
+    perPart = r.perPart.map((p) => ({ itemId: p.itemId, name: nameOf(dataset, p.itemId), slug: slugOf(dataset, p.itemId), rate: fmt2(p.rate), fluid: fluidOf(dataset, p.itemId) }));
     if (!feasible) headline = 'Infeasible with these resources';
-    else if (perPart.length === 1) headline = `${perPart[0].rate} ${perPart[0].name}/min`;
+    else if (perPart.length === 1) headline = `${perPart[0].rate}${perPart[0].fluid ? ' m³' : ''} ${perPart[0].name}/min`;
     else headline = `${fmt2(r.sets)} sets/min`;
   }
 
@@ -166,7 +167,7 @@ export function computePlan(dataset, req) {
 
   const resourceMeters = [...caps].map(([itemId, available]) => {
     const used = Math.max(0, usage.get(itemId) || 0);
-    return { itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), used: fmt2(used), available, pct: available ? Math.min(1, used / available) : 0, binding: available > 0 && used >= available - 1e-6 };
+    return { itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), used: fmt2(used), available, pct: available ? Math.min(1, used / available) : 0, binding: available > 0 && used >= available - 1e-6, fluid: fluidOf(dataset, itemId) };
   });
 
   const buildRows = phys.perRecipe
