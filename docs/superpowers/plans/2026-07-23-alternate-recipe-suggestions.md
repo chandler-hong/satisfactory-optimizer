@@ -604,7 +604,7 @@ Run: `node --check js/ui/render.js && node --check js/ui/inputs.js && node --che
 Expected: `OK`.
 
 Run: `npm test`
-Expected: PASS — 0 failures, 102 tests (unchanged from Task 2; these files have no unit tests).
+Expected: PASS — 0 failures, 104 tests (unchanged from Task 2; these files have no unit tests).
 
 - [ ] **Step 7: Commit**
 
@@ -625,7 +625,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Full test suite**
 
 Run: `npm test`
-Expected: PASS — 0 failures, 102 tests total (96 baseline + 6 suggestions + 2 view-model; the exact count is secondary — confirm **0 fail**).
+Expected: PASS — 0 failures, 104 tests total (96 baseline + 6 suggestions + 2 view-model; the exact count is secondary — confirm **0 fail**).
 
 - [ ] **Step 2: Visual + interaction smoke (controller/screenshot pass)**
 
