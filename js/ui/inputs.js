@@ -46,15 +46,6 @@ function readCount(input) {
   return Math.max(0, Math.floor(Number(input.value) || 0));
 }
 
-/** Blank means "not set" -> null; anything non-numeric also -> null.
- * Negative values also -> null (never feed a negative resource cap to the LP). */
-function readOverride(input) {
-  const raw = input.value.trim();
-  if (raw === '') return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.max(0, n) : null;
-}
-
 function makeTierSelect(tiers, defaultTier) {
   const select = el('select');
   for (const t of tiers) {
@@ -230,7 +221,7 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
 
 /**
  * One "add a resource" row: raw-resource picker + miner tier +
- * impure/normal/pure counts + live rate preview + manual override + remove
+ * impure/normal/pure counts + live rate preview + overclock slider + remove
  * button. Rate computation is delegated entirely to `capsFromInputs` (keyed
  * under a throwaway key) so this file never re-implements the miner rate
  * table; the same helper is reused, batched across rows, for aggregation in
@@ -251,14 +242,28 @@ function makeResourceRow(resourceOptions, onRowChange) {
   const nodesRow = el('div', 'res-card__nodes');
   row.appendChild(nodesRow);
 
+  // Overclock (100%–250%) scales the whole row's extraction rate — matches
+  // in-game overclocking and replaces the old manual "override /min".
+  const ocRow = el('div', 'res-card__oc');
+  const ocLabel = el('span', 'res-card__oc-label');
+  ocLabel.textContent = 'Overclock';
+  const ocSlider = el('input', 'res-card__oc-slider');
+  ocSlider.type = 'range';
+  ocSlider.min = '100';
+  ocSlider.max = '250';
+  ocSlider.step = '1';
+  ocSlider.value = '100';
+  const ocVal = el('span', 'res-card__oc-val');
+  ocRow.append(ocLabel, ocSlider, ocVal);
+  row.appendChild(ocRow);
+
   const footRow = el('div', 'res-card__row');
-  const overrideInput = numberInput({ value: '', min: 0, step: 'any', placeholder: 'override /min', width: '7rem' });
-  footRow.appendChild(fieldRow('Override', overrideInput));
   const rateSpan = el('span', 'res-card__rate');
   footRow.appendChild(rateSpan);
   const removeBtn = el('button');
   removeBtn.type = 'button';
   removeBtn.textContent = 'Remove';
+  removeBtn.style.marginLeft = 'auto';
   footRow.appendChild(removeBtn);
   row.appendChild(footRow);
 
@@ -291,20 +296,21 @@ function makeResourceRow(resourceOptions, onRowChange) {
     for (const inp of Object.values(inputs)) inp.addEventListener('input', handleChange);
   }
 
-  function ovr() {
-    const o = readOverride(overrideInput);
-    return o !== null ? { override: o } : {};
+  function clockValue() {
+    const pct = Number(ocSlider.value);
+    return Number.isFinite(pct) && pct >= 100 ? pct / 100 : 1;
   }
 
   function config() {
-    if (kind === 'water') return { kind: 'water', count: readCount(inputs.count), ...ovr() };
+    const clock = clockValue();
+    if (kind === 'water') return { kind: 'water', count: readCount(inputs.count), clock };
     if (kind === 'oil') {
-      return { kind: 'oil', impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure), ...ovr() };
+      return { kind: 'oil', impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure), clock };
     }
     if (kind === 'well') {
-      return { kind: 'well', satellites: { impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure) }, ...ovr() };
+      return { kind: 'well', satellites: { impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure) }, clock };
     }
-    return { kind: 'miner', minerTier: tierSelect.value, impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure), ...ovr() };
+    return { kind: 'miner', minerTier: tierSelect.value, impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure), clock };
   }
 
   function currentRate() {
@@ -312,6 +318,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
   }
 
   function refresh() {
+    ocVal.textContent = `${Number(ocSlider.value)}%`;
     rateSpan.textContent = `${currentRate()}/min`;
   }
 
@@ -325,7 +332,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
     handleChange();
   });
   tierSelect.addEventListener('change', handleChange);
-  overrideInput.addEventListener('input', handleChange);
+  ocSlider.addEventListener('input', handleChange);
 
   buildExtraction('miner');
   refresh();
@@ -603,6 +610,19 @@ export function buildInputs(dataset, sidebarEl) {
   altSearch.style.margin = '0.4rem 0';
   details.appendChild(altSearch);
 
+  const altBulkRow = el('div');
+  altBulkRow.style.display = 'flex';
+  altBulkRow.style.gap = '0.4rem';
+  altBulkRow.style.margin = '0 0 0.5rem';
+  const enableAllBtn = el('button');
+  enableAllBtn.type = 'button';
+  enableAllBtn.textContent = 'Enable all';
+  const disableAllBtn = el('button');
+  disableAllBtn.type = 'button';
+  disableAllBtn.textContent = 'Disable all';
+  altBulkRow.append(enableAllBtn, disableAllBtn);
+  details.appendChild(altBulkRow);
+
   const altListEl = el('div');
   altListEl.style.maxHeight = '16rem';
   altListEl.style.overflowY = 'auto';
@@ -626,8 +646,19 @@ export function buildInputs(dataset, sidebarEl) {
     span.textContent = r.name;
     label.append(cb, span);
     altListEl.appendChild(label);
-    return { name: r.name, rowEl: label };
+    return { id: r.id, name: r.name, rowEl: label, cb };
   });
+
+  function setAllAlts(value) {
+    for (const entry of altRowEntries) {
+      entry.cb.checked = value;
+      altChecked.set(entry.id, value);
+    }
+    updateSummary();
+    emitChange();
+  }
+  enableAllBtn.addEventListener('click', () => setAllAlts(true));
+  disableAllBtn.addEventListener('click', () => setAllAlts(false));
 
   altSearch.addEventListener('input', () => {
     const q = altSearch.value.trim().toLowerCase();

@@ -559,11 +559,72 @@ table {
 }
 
 .res-card__rate {
-  margin-left: auto;
   align-self: center;
   color: var(--ink-2);
   font-size: 0.85rem;
   white-space: nowrap;
+}
+
+/* Overclock slider row inside a resource card. */
+.res-card__oc {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.res-card__oc-label {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.res-card__oc-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.res-card__oc-val {
+  min-width: 2.75rem;
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Themed range slider (used by the overclock control). */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
+
+input[type="range"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
 }
 
 /* Maximize-mode target rows (item picker + weight + remove). */
