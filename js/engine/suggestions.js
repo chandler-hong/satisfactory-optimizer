@@ -87,7 +87,9 @@ export function suggestAlternates(
 
   const params = { dataset, caps, mode, targets, noWaste };
   const base = solveFor(params, enabledRecipeIds);
-  const baseM = metricsFor(dataset, base.recipeRates, shardBudget);
+  // Machine/raw metrics feed only the target-rates benefits; in Maximize mode the
+  // benefit is output-only, so skip the realize() work entirely (baseM/plusM null).
+  const baseM = mode === 'targets' ? metricsFor(dataset, base.recipeRates, shardBudget) : null;
 
   const allEnabled = new Set(enabledRecipeIds);
   for (const r of disabledAlts) allEnabled.add(r.id);
@@ -107,7 +109,7 @@ export function suggestAlternates(
     const plusSet = new Set(enabledRecipeIds);
     plusSet.add(cand.id);
     const plus = solveFor(params, plusSet);
-    const plusM = metricsFor(dataset, plus.recipeRates, shardBudget);
+    const plusM = mode === 'targets' ? metricsFor(dataset, plus.recipeRates, shardBudget) : null;
     const benefit = benefitOf(mode, base, baseM, plus, plusM, nameOf);
     if (benefit) kept.push({ recipeId: cand.id, recipeName: cand.name, outputItemId: byId.get(cand.id)?.outputs?.[0]?.itemId, benefit });
   }
