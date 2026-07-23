@@ -117,7 +117,7 @@ analyzeRequirements(dataset, enabledRecipeIds, availableRawIds, userAddedRawIds,
         {
           itemId,
           status: 'ok' | 'missing' | 'impossible',
-          reason: 'partial' | 'no-resources' | 'wrong-resources' | 'no-recipe',
+          reason: 'buildable' | 'partial' | 'no-resources' | 'wrong-resources' | 'no-recipe',
           deps: [ { itemId, added: boolean } ],   // raw ancestors, sorted by name
         }
       ],
