@@ -242,20 +242,37 @@ function makeResourceRow(resourceOptions, onRowChange) {
   const nodesRow = el('div', 'res-card__nodes');
   row.appendChild(nodesRow);
 
-  // Overclock (100%–250%) scales the whole row's extraction rate — matches
-  // in-game overclocking and replaces the old manual "override /min".
+  // Overclock (100%–250%) scales the whole row's extraction rate, matching
+  // in-game overclocking. The slider free-slides but is magnetically pulled to
+  // the 50% marks; the number box sets an exact value. `pct` is the single
+  // source of truth both controls reflect (clockValue() reads it).
+  let pct = 100;
+  const OC_MARKS = [100, 150, 200, 250];
+  const OC_SNAP = 6; // ± window (in %) where the slider snaps onto a mark
+  const clampPct = (p) => Math.min(250, Math.max(100, p));
+  const round2 = (x) => Math.round(x * 100) / 100;
+
   const ocRow = el('div', 'res-card__oc');
   const ocLabel = el('span', 'res-card__oc-label');
   ocLabel.textContent = 'Overclock';
+  const ocInput = el('input', 'res-card__oc-input');
+  ocInput.type = 'number';
+  ocInput.min = '100';
+  ocInput.max = '250';
+  ocInput.step = '0.5';
+  ocInput.value = '100';
+  const ocPct = el('span', 'res-card__oc-pct');
+  ocPct.textContent = '%';
+  ocRow.append(ocLabel, ocInput, ocPct);
+  row.appendChild(ocRow);
+
   const ocSlider = el('input', 'res-card__oc-slider');
   ocSlider.type = 'range';
   ocSlider.min = '100';
   ocSlider.max = '250';
-  ocSlider.step = '50'; // snap to 100 / 150 / 200 / 250
+  ocSlider.step = 'any'; // free slide; magnetic snap handled in the input event
   ocSlider.value = '100';
-  const ocVal = el('span', 'res-card__oc-val');
-  ocRow.append(ocLabel, ocSlider, ocVal);
-  row.appendChild(ocRow);
+  row.appendChild(ocSlider);
 
   const footRow = el('div', 'res-card__row');
   const rateSpan = el('span', 'res-card__rate');
@@ -297,8 +314,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
   }
 
   function clockValue() {
-    const pct = Number(ocSlider.value);
-    return Number.isFinite(pct) && pct >= 100 ? pct / 100 : 1;
+    return pct / 100;
   }
 
   function config() {
@@ -318,9 +334,8 @@ function makeResourceRow(resourceOptions, onRowChange) {
   }
 
   function refresh() {
-    ocVal.textContent = `${Number(ocSlider.value)}%`;
-    // Rate readout: at most 2 decimals, trailing zeros dropped (Math.round).
-    rateSpan.textContent = `${Math.round(currentRate() * 100) / 100}/min`;
+    // Rate readout: at most 2 decimals, trailing zeros dropped.
+    rateSpan.textContent = `${round2(currentRate())}/min`;
   }
 
   function handleChange() {
@@ -333,7 +348,32 @@ function makeResourceRow(resourceOptions, onRowChange) {
     handleChange();
   });
   tierSelect.addEventListener('change', handleChange);
-  ocSlider.addEventListener('input', handleChange);
+
+  // Set pct from any source, sync both controls, recompute.
+  function setPct(p) {
+    pct = round2(clampPct(p));
+    ocInput.value = String(pct);
+    ocSlider.value = String(pct);
+    handleChange();
+  }
+  ocSlider.addEventListener('input', () => {
+    const raw = Number(ocSlider.value);
+    const mark = OC_MARKS.find((m) => Math.abs(raw - m) <= OC_SNAP);
+    setPct(mark ?? raw); // magnetic pull onto a 50% mark when close
+  });
+  ocInput.addEventListener('input', () => {
+    // While typing, apply valid values but don't rewrite the box (keeps caret);
+    // 'change' (blur/Enter) normalizes it.
+    const v = Number(ocInput.value);
+    if (ocInput.value.trim() === '' || !Number.isFinite(v)) return;
+    pct = round2(clampPct(v));
+    ocSlider.value = String(pct);
+    handleChange();
+  });
+  ocInput.addEventListener('change', () => {
+    const v = Number(ocInput.value);
+    setPct(Number.isFinite(v) ? v : 100);
+  });
 
   buildExtraction('miner');
   refresh();
