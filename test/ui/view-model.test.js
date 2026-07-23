@@ -95,3 +95,29 @@ test('computePlan surfaces m³ for fluids (headline + flags)', () => {
   const outFuel = view.graph.nodes.find((n) => n.id === 'out:fuel');
   assert.ok(outFuel && outFuel.fluid === true, 'fluid output node flagged');
 });
+
+test('computePlan surfaces unrefined byproducts as surplus sink nodes', () => {
+  // One recipe makes a target (main) + an unconsumed byproduct (byp).
+  const bp = {
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore', liquid: false }],
+      ['main', { id: 'main', name: 'Main', slug: 'main', liquid: false }],
+      ['byp', { id: 'byp', name: 'Byproduct', slug: 'byp', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'Machine', slug: 'b', basePowerMW: 10, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['ore']),
+    recipes: [
+      { id: 'rec', name: 'Main', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 60 }], outputs: [{ itemId: 'main', perMin: 30 }, { itemId: 'byp', perMin: 20 }] },
+    ],
+  };
+  const view = computePlan(bp, {
+    mode: 'max', caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['rec']),
+    targets: [{ itemId: 'main', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  const outMain = view.graph.nodes.find((n) => n.id === 'out:main');
+  assert.ok(outMain && outMain.isOutput, 'target gets an output sink');
+  const surByp = view.graph.nodes.find((n) => n.id === 'sur:byp');
+  assert.ok(surByp && surByp.isSurplus, 'wasted byproduct gets a surplus sink');
+  assert.ok(approx(surByp.rate, 20), 'surplus sink carries the leftover rate (20/min)');
+  assert.ok(view.graph.edges.some((e) => e.from === 'rec' && e.to === 'sur:byp'), 'edge from producer to surplus sink');
+});

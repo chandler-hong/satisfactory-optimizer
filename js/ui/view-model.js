@@ -102,29 +102,37 @@ function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
       machines: machinesById.get(rid) ?? 0,
     });
   }
-  // Explicit output/storage sinks: for each target part, the net rate that
-  // leaves the system (produced minus consumed internally). This is what makes
-  // "set aside 68.6 wire while the rest becomes cable" visible in the diagram.
-  for (const itemId of targetItemIds || []) {
-    if (dataset.rawResourceIds.has(itemId)) continue;
-    let produced = 0;
-    let consumed = 0;
-    for (const rid of active) {
-      const x = recipeRates.get(rid);
-      const r = byId.get(rid);
-      for (const o of r.outputs) if (o.itemId === itemId) produced += x * o.perMin;
-      for (const inp of r.inputs) if (inp.itemId === itemId) consumed += x * inp.perMin;
-    }
-    const net = produced - consumed;
+  // Net produced-minus-consumed for every item in the build.
+  const netById = new Map();
+  for (const rid of active) {
+    const x = recipeRates.get(rid);
+    const r = byId.get(rid);
+    for (const o of r.outputs) netById.set(o.itemId, (netById.get(o.itemId) || 0) + x * o.perMin);
+    for (const inp of r.inputs) netById.set(inp.itemId, (netById.get(inp.itemId) || 0) - x * inp.perMin);
+  }
+
+  // A sink node captures a positive net leaving the build: target parts as
+  // "output" sinks, and any other leftover as "surplus" (an unrefined
+  // byproduct, e.g. polymer resin with no recipe/resource to consume it).
+  const addSink = (prefix, extra, itemId, net) => {
     const prods = producersOf.get(itemId) || [];
-    if (net <= 1e-6 || prods.length === 0) continue;
+    if (net <= 1e-6 || prods.length === 0) return;
     const outTier = Math.max(...prods.map((p) => tier.get(p) ?? 1)) + 1;
-    nodes.push({ id: `out:${itemId}`, tier: outTier, isOutput: true, itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), rate: net, fluid: fluidOf(dataset, itemId) });
-    for (const p of prods) edges.push({ from: p, to: `out:${itemId}`, itemId, rate: net / prods.length });
+    nodes.push({ id: `${prefix}:${itemId}`, tier: outTier, itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), rate: net, fluid: fluidOf(dataset, itemId), ...extra });
+    for (const p of prods) edges.push({ from: p, to: `${prefix}:${itemId}`, itemId, rate: net / prods.length });
+  };
+  const targetSet = new Set(targetItemIds || []);
+  for (const itemId of targetSet) {
+    if (dataset.rawResourceIds.has(itemId)) continue;
+    addSink('out', { isOutput: true }, itemId, netById.get(itemId) || 0);
+  }
+  for (const [itemId, net] of netById) {
+    if (targetSet.has(itemId) || dataset.rawResourceIds.has(itemId)) continue;
+    addSink('sur', { isSurplus: true }, itemId, net);
   }
 
   const tiers = Math.max(0, ...nodes.map((n) => n.tier)) + 1;
-  const richEdges = edges.map((e) => ({ ...e, itemName: nameOf(dataset, e.itemId), itemSlug: slugOf(dataset, e.itemId) }));
+  const richEdges = edges.map((e) => ({ ...e, itemName: nameOf(dataset, e.itemId), itemSlug: slugOf(dataset, e.itemId), fluid: fluidOf(dataset, e.itemId) }));
   return { nodes, edges: richEdges, tiers };
 }
 
