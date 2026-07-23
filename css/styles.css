@@ -635,6 +635,21 @@ input[type="range"]:focus-visible {
   margin-bottom: 0.5rem;
 }
 
+/* Alternate-recipe rows (checkbox + name): one per line, hover to pick. */
+.alt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.alt-row:hover {
+  background: var(--surface-2);
+}
+
 /* Selected-item icon overlaid inside a searchable picker's input. */
 .search-prefix {
   position: absolute;

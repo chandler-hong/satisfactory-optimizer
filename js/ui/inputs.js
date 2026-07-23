@@ -629,11 +629,11 @@ export function buildInputs(dataset, sidebarEl) {
   details.appendChild(altListEl);
 
   const altRowEntries = altRecipes.map((r) => {
-    const label = el('label');
-    label.style.display = 'flex';
-    label.style.alignItems = 'center';
-    label.style.gap = '0.4rem';
-    label.style.padding = '0.15rem 0';
+    // Layout lives in the .alt-row CSS class (not inline) so the filter can
+    // toggle style.display between 'none' and '' and have '' fall back to the
+    // class's `display: flex` — setting inline flex here would revert to the
+    // <label> default `inline` on show, collapsing rows onto shared lines.
+    const label = el('label', 'alt-row');
     const cb = el('input');
     cb.type = 'checkbox';
     cb.checked = true;
