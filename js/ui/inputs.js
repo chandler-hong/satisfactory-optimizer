@@ -415,25 +415,23 @@ function makeResourceRow(resourceOptions, onRowChange) {
   };
 }
 
-/** One "add a target" row for Target-rates mode: item picker + rate + remove. */
+/** One "target-rate" row: item picker (line 1) + rate + remove (line 2). */
 function makeTargetRow(itemOptions, onRowChange) {
-  const row = el('div');
-  row.style.display = 'flex';
-  row.style.gap = '0.4rem';
-  row.style.alignItems = 'center';
-  row.style.marginBottom = '0.4rem';
-
+  const row = el('div', 'target-row');
   const picker = createSearchSelect({ options: itemOptions, placeholder: 'Part…', showIcon: true });
-  picker.el.style.flex = '1 1 9rem';
+  picker.el.style.width = '100%';
   row.appendChild(picker.el);
 
+  const foot = el('div', 'target-row__foot');
+  const label = el('span', 'target-row__label');
+  label.textContent = 'Rate /min';
   const rateInput = numberInput({ value: '', min: 0, step: 'any', placeholder: 'rate /min', width: '6rem' });
-  row.appendChild(rateInput);
-
   const removeBtn = el('button');
   removeBtn.type = 'button';
   removeBtn.textContent = 'Remove';
-  row.appendChild(removeBtn);
+  removeBtn.style.marginLeft = 'auto';
+  foot.append(label, rateInput, removeBtn);
+  row.appendChild(foot);
 
   picker.onSelect(onRowChange);
   rateInput.addEventListener('input', onRowChange);
@@ -449,19 +447,25 @@ function makeTargetRow(itemOptions, onRowChange) {
   };
 }
 
-/** One "maximize" target row: item picker + weight (parts per set) + remove. */
+/** One "maximize" target row: item picker (line 1) + weight + remove (line 2). */
 function makeMaxTargetRow(itemOptions, onRowChange) {
   const row = el('div', 'target-row');
   const picker = createSearchSelect({ options: itemOptions, placeholder: 'Part…', showIcon: true });
-  picker.el.style.flex = '1 1 9rem';
+  picker.el.style.width = '100%';
   row.appendChild(picker.el);
+
+  const foot = el('div', 'target-row__foot');
+  const label = el('span', 'target-row__label');
+  label.textContent = 'Weight';
   const weightInput = numberInput({ value: 1, min: 0, step: 'any', width: '4rem' });
   weightInput.title = 'Weight — parts per set (equal = balanced)';
-  row.appendChild(weightInput);
   const removeBtn = el('button');
   removeBtn.type = 'button';
   removeBtn.textContent = 'Remove';
-  row.appendChild(removeBtn);
+  removeBtn.style.marginLeft = 'auto';
+  foot.append(label, weightInput, removeBtn);
+  row.appendChild(foot);
+
   picker.onSelect(onRowChange);
   weightInput.addEventListener('input', onRowChange);
   const getWeight = () => {
@@ -533,6 +537,9 @@ export function buildInputs(dataset, sidebarEl) {
   const resourceHint = el('p', 'hint');
   resourceHint.textContent = 'Add ore, water, oil, or gas — each row adapts to how the resource is extracted.';
   sidebarEl.appendChild(resourceHint);
+  const veinHint = el('p', 'hint');
+  veinHint.textContent = 'New veins default to Normal purity — set Impure/Pure to match your map.';
+  sidebarEl.appendChild(veinHint);
   const resourceRowsEl = el('div');
   sidebarEl.appendChild(resourceRowsEl);
 

@@ -594,6 +594,8 @@ table {
   overflow-y: auto;
   padding: 0.25rem;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  min-width: 18rem;              /* wider than the (narrow) input so names don't wrap */
+  max-width: min(24rem, 90vw);   /* over-constrained: right:0 is ignored, popup grows right */
 }
 
 .search-option {
@@ -609,6 +611,12 @@ table {
   cursor: pointer;
   color: var(--ink);
   font: inherit;
+  white-space: nowrap;
+}
+.search-option > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .search-option:hover {
@@ -723,12 +731,22 @@ input[type="range"]:focus-visible {
   outline-offset: 3px;
 }
 
-/* Maximize-mode target rows (item picker + weight + remove). */
+/* Target rows (Maximize weight / Target-rates rate): picker on its own line,
+   controls beneath so long item names ("Heavy Modular Frame") aren't clipped. */
 .target-row {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.target-row__foot {
+  display: flex;
   align-items: center;
-  margin-bottom: 0.5rem;
+  gap: 0.5rem;
+}
+.target-row__label {
+  color: var(--ink-2);
+  font-size: 0.8rem;
 }
 
 /* Alternate-recipe rows (checkbox + name): one per line, hover to pick. */
