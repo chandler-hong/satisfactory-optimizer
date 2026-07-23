@@ -9,6 +9,11 @@ icons.
 **Two modes:** **Max one part** (maximize a target from your resources) and **Target
 rates** (hit specific rates; shortfalls reported).
 
+**Requirements check:** when you pick a target, the planner shows which raw resources it
+needs — each marked ✓ added or ✗ missing — and flags impossible resource/target combos
+(e.g. Crude Oil → Modular Frame) with a clear "recheck your resources or target" error
+instead of a silent empty plan.
+
 ## Run the app
 
 ES modules + `fetch` need HTTP (not `file://`), so serve the folder:
