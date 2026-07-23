@@ -838,6 +838,19 @@ input[type="range"]:focus-visible {
   fill: var(--ink-muted);
 }
 
+/* Edge machine-count label: sits centered on the line, and its wide surface-
+   coloured halo carves a gap in the arrow (──── ×5 ───▶) — no box. */
+.diagram-elabel {
+  fill: var(--ink);
+  font: 700 11px "Nunito", system-ui, sans-serif;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 6px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 /* Red Reset button (top-left of the sidebar). */
 .sidebar button.reset-btn {
   background: var(--critical);

@@ -1,9 +1,9 @@
 import { iconUrl } from './icons.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
-const ROW_H = 78; // vertical pitch between rows in a column
+const ROW_H = 96; // vertical pitch between rows in a column
 const BOX_H = 52;
-const COL_GAP = 60; // horizontal gap between columns
+const COL_GAP = 104; // horizontal gap between columns (room for edge labels)
 const MARGIN = 20;
 const ICON = 26;
 const PAD_X = 12; // box inner horizontal padding
@@ -163,7 +163,10 @@ export function renderDiagram(container, graph) {
   defs.appendChild(marker);
   root.appendChild(defs);
 
-  // Edges first (under the boxes).
+  // Edges first (under the boxes). Collect a label anchor per edge on its first
+  // segment (near the source), so a producer's split across multiple consumers
+  // is visible — the labels fan out with the edges.
+  const edgeLabels = [];
   for (const chain of chains) {
     const pts = chain.ids.map((id, i) => {
       const p = pos.get(id);
@@ -179,6 +182,7 @@ export function renderDiagram(container, graph) {
       d += ` C ${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}`;
     }
     root.appendChild(svg('path', { d, class: 'diagram-edge', 'marker-end': 'url(#diag-arrow)' }));
+    edgeLabels.push({ x: pts[0][0] + (pts[1][0] - pts[0][0]) * 0.55, y: pts[0][1] + (pts[1][1] - pts[0][1]) * 0.55, edge: chain.edge });
   }
 
   // Nodes.
@@ -208,6 +212,46 @@ export function renderDiagram(container, graph) {
     g.appendChild(sub);
 
     root.appendChild(g);
+  }
+
+  // Where a source fans out to 2+ consumers of the same item, estimate how many
+  // of its machines feed each. Whole numbers via largest-remainder rounding so
+  // the per-edge counts sum exactly to the source's machine count.
+  const groups = new Map();
+  for (const e of graph.edges) {
+    const k = `${e.from}::${e.itemId}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
+  }
+  const edgeShare = new Map();
+  for (const es of groups.values()) {
+    const src = nodeById.get(es[0].from);
+    if (!src || !(src.machines > 0) || es.length < 2) continue;
+    const total = es.reduce((s, e) => s + e.rate, 0);
+    if (!(total > 0)) continue;
+    const rows = es.map((e) => {
+      const exact = (e.rate / total) * src.machines;
+      return { e, exact, base: Math.floor(exact), rem: exact - Math.floor(exact) };
+    });
+    let leftover = Math.round(src.machines) - rows.reduce((s, r) => s + r.base, 0);
+    for (const r of [...rows].sort((a, b) => b.rem - a.rem)) {
+      if (leftover <= 0) break;
+      r.base += 1;
+      leftover -= 1;
+    }
+    for (const r of rows) edgeShare.set(r.e, { base: r.base, exact: r.exact });
+  }
+  // Haloed "×N" text (no box): how many of the source's machines feed this edge.
+  for (const L of edgeLabels) {
+    const sh = edgeShare.get(L.edge);
+    if (!sh) continue;
+    const src = nodeById.get(L.edge.from);
+    const t = svg('text', { x: L.x, y: L.y, class: 'diagram-elabel', 'text-anchor': 'middle' });
+    t.textContent = `×${sh.base >= 1 ? sh.base : Math.round(sh.exact * 10) / 10}`;
+    const title = svg('title', {});
+    title.textContent = `≈${Math.round(sh.exact * 10) / 10} ${src.buildingName || 'machine'}(s) → ${nodeById.get(L.edge.to)?.recipeName || nodeById.get(L.edge.to)?.name || ''}`;
+    t.appendChild(title);
+    root.appendChild(t);
   }
 
   container.appendChild(root);
