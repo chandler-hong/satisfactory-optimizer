@@ -14,21 +14,34 @@ function currentTheme() {
 }
 
 function restoreTheme() {
-  const stored = localStorage.getItem(THEME_KEY);
+  // localStorage can throw (e.g. SecurityError in sandboxed/private contexts
+  // where storage is disabled); this runs at module top-level, so an
+  // uncaught throw here would abort module evaluation and boot() would never
+  // run, leaving a blank app. Fall back to the default theme (dark, already
+  // set via <html data-theme="dark"> in index.html) on failure.
+  let stored = null;
+  try {
+    stored = localStorage.getItem(THEME_KEY);
+  } catch {
+    stored = null;
+  }
   if (stored === 'dark' || stored === 'light') applyTheme(stored);
 }
 
 function toggleTheme() {
   const next = currentTheme() === 'dark' ? 'light' : 'dark';
   applyTheme(next);
-  localStorage.setItem(THEME_KEY, next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {
+    // Storage unavailable: ignore. The theme still applies for this
+    // session, it just won't persist across reloads.
+  }
 }
 
 restoreTheme();
 
 document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
-
-console.log('boot');
 
 /** Debounce: delay invoking `fn` until `wait` ms after the last call. */
 function debounce(fn, wait) {

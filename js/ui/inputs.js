@@ -46,12 +46,13 @@ function readCount(input) {
   return Math.max(0, Math.floor(Number(input.value) || 0));
 }
 
-/** Blank means "not set" -> null; anything non-numeric also -> null. */
+/** Blank means "not set" -> null; anything non-numeric also -> null.
+ * Negative values also -> null (never feed a negative resource cap to the LP). */
 function readOverride(input) {
   const raw = input.value.trim();
   if (raw === '') return null;
   const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && n > 0 ? Math.max(0, n) : null;
 }
 
 function makeTierSelect(tiers, defaultTier) {
@@ -382,6 +383,9 @@ export function buildInputs(dataset, sidebarEl) {
 
   // --- Resources ----------------------------------------------------------
   sidebarEl.appendChild(sectionHeading('Resources'));
+  const resourceHint = el('p', 'hint');
+  resourceHint.textContent = 'Solid ore resources only for now — fluid inputs (water, oil, …) are coming soon.';
+  sidebarEl.appendChild(resourceHint);
   const resourceRowsEl = el('div');
   sidebarEl.appendChild(resourceRowsEl);
 

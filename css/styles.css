@@ -349,3 +349,13 @@ table {
 .critical {
   color: var(--critical);
 }
+
+/* ==========================================================================
+   Hint text (.hint)
+   Small static note, e.g. the "fluids not yet supported" note in Resources.
+   ========================================================================== */
+
+.hint {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
