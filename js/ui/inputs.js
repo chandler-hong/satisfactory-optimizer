@@ -918,5 +918,14 @@ export function buildInputs(dataset, sidebarEl) {
     onChange(cb) {
       listeners.push(cb);
     },
+    // Tick an alternate recipe on (from a results-panel suggestion) and recompute.
+    enableAlternate(recipeId) {
+      const entry = altRowEntries.find((e) => e.id === recipeId);
+      if (!entry) return;
+      entry.cb.checked = true;
+      altChecked.set(recipeId, true);
+      updateSummary();
+      emitChange();
+    },
   };
 }

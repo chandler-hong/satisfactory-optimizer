@@ -108,7 +108,7 @@ async function boot() {
     return;
   }
 
-  const { readRequest, onChange } = buildInputs(dataset, sidebarEl);
+  const { readRequest, onChange, enableAlternate } = buildInputs(dataset, sidebarEl);
 
   const powerEl = document.getElementById('view-power');
   if (powerEl) buildPower(dataset, powerEl);
@@ -125,7 +125,7 @@ async function boot() {
       return;
     }
     try {
-      renderResults(resultsEl, computePlan(dataset, req));
+      renderResults(resultsEl, computePlan(dataset, req), { onEnableAlternate: enableAlternate });
     } catch (err) {
       console.error(err);
       renderMessage(resultsEl, `Failed to compute plan: ${err?.message ?? String(err)}`);

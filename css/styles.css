@@ -1042,3 +1042,38 @@ input[type="range"]:focus-visible {
 .power-empty {
   color: var(--ink-muted);
 }
+
+/* ==========================================================================
+   Alternate-recipe improvement suggestions (accent callout, one-click Enable)
+   ========================================================================== */
+.suggestions {
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  font-size: 0.88rem;
+}
+.suggestions__head { margin: 0 0 0.5rem; color: var(--ink); font-weight: 600; }
+.suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+.suggestion .icon { width: 1.1rem; height: 1.1rem; }
+.suggestion__name { color: var(--ink); }
+.suggestion__benefit { color: var(--ink-2); font-size: 0.82rem; }
+.suggestion__enable {
+  margin-left: auto;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.suggestion__enable:hover { background: color-mix(in srgb, var(--accent) 28%, transparent); }

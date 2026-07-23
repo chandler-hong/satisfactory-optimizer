@@ -389,19 +389,54 @@ function renderRequirements(requirements) {
 }
 
 /**
+ * Alternate-recipe improvement suggestions: an accent callout, each row an
+ * output icon + recipe name + benefit + an Enable button that ticks the
+ * alternate on via `onEnable`. Names via textContent (XSS-safe).
+ */
+function renderSuggestions(suggestions, onEnable) {
+  const box = el('div', 'suggestions');
+  const head = el('p', 'suggestions__head');
+  head.textContent = '💡 Improve this build with alternate recipes:';
+  box.appendChild(head);
+  for (const s of suggestions) {
+    const row = el('div', 'suggestion');
+    row.appendChild(makeIcon(s.outputSlug, s.recipeName, 'item'));
+    const name = el('span', 'suggestion__name');
+    name.textContent = s.recipeName;
+    row.appendChild(name);
+    const benefit = el('span', 'suggestion__benefit');
+    benefit.textContent = s.benefit.label;
+    row.appendChild(benefit);
+    const btn = el('button', 'suggestion__enable');
+    btn.type = 'button';
+    btn.textContent = 'Enable';
+    if (onEnable) btn.addEventListener('click', () => onEnable(s.recipeId));
+    row.appendChild(btn);
+    box.appendChild(row);
+  }
+  return box;
+}
+
+/**
  * Render a PlanView into rootEl. Idempotent: clears rootEl then rebuilds.
  * All item/recipe/building names are inserted via textContent — never
  * innerHTML — so untrusted dataset strings can't inject markup.
  * @param {HTMLElement} rootEl
  * @param {import('./view-model.js').PlanView} planView
  */
-export function renderResults(rootEl, planView) {
+export function renderResults(rootEl, planView, handlers = {}) {
   rootEl.replaceChildren();
 
   rootEl.appendChild(renderHeadline(planView));
 
   if (planView.requirements && planView.requirements.hasIssues) {
     rootEl.appendChild(renderRequirements(planView.requirements));
+  }
+
+  // Rendered BEFORE the hide-empty-plan return so "enable X to build this at
+  // all" still shows when the base recipes produce nothing.
+  if (planView.suggestions && planView.suggestions.length > 0) {
+    rootEl.appendChild(renderSuggestions(planView.suggestions, handlers.onEnableAlternate));
   }
 
   // Nothing to build — the requirements callout(s) above explain why. Skip the
