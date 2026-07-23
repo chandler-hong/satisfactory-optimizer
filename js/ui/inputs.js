@@ -669,7 +669,9 @@ export function buildInputs(dataset, sidebarEl) {
 
   // --- Alt recipes (searchable, collapsible, default all-on) --------------
   const altRecipes = dataset.recipes.filter((r) => r.alternate).sort((a, b) => a.name.localeCompare(b.name));
-  const altChecked = new Map(altRecipes.map((r) => [r.id, true]));
+  // Alternates are OFF by default — you must unlock them in-game, so a fresh
+  // plan should only assume the base recipes.
+  const altChecked = new Map(altRecipes.map((r) => [r.id, false]));
 
   const details = el('details');
   const summary = el('summary');
@@ -714,7 +716,7 @@ export function buildInputs(dataset, sidebarEl) {
     const label = el('label', 'alt-row');
     const cb = el('input');
     cb.type = 'checkbox';
-    cb.checked = true;
+    cb.checked = false;
     cb.addEventListener('change', () => {
       altChecked.set(r.id, cb.checked);
       updateSummary();
@@ -757,6 +759,9 @@ export function buildInputs(dataset, sidebarEl) {
     }
   });
 
+  const altWarning = el('p', 'alt-warning');
+  altWarning.textContent = "⚠ Alternate recipes are disabled by default — expand below and enable the ones you've unlocked or want to use.";
+  sidebarEl.appendChild(altWarning);
   sidebarEl.appendChild(details);
 
   // No Optimize button — the build recomputes live (debounced) on every change.
@@ -780,9 +785,9 @@ export function buildInputs(dataset, sidebarEl) {
     targetsSection.style.display = 'none';
 
     for (const entry of altRowEntries) {
-      entry.cb.checked = true;
+      entry.cb.checked = false;
       entry.rowEl.style.display = '';
-      altChecked.set(entry.id, true);
+      altChecked.set(entry.id, false);
     }
     altSearch.value = '';
     updateSummary();
@@ -804,7 +809,7 @@ export function buildInputs(dataset, sidebarEl) {
       beltTier: beltSelect.value,
       pipeTier: pipeSelect.value,
       noWaste: noWasteInput.checked,
-      altOff: altRowEntries.filter((e) => !e.cb.checked).map((e) => e.id),
+      altEnabled: altRowEntries.filter((e) => e.cb.checked).map((e) => e.id),
     };
   }
   function saveState() {
@@ -822,11 +827,11 @@ export function buildInputs(dataset, sidebarEl) {
     if (BELT_TIERS.includes(s.beltTier)) beltSelect.value = s.beltTier;
     if (PIPE_TIERS.includes(s.pipeTier)) pipeSelect.value = s.pipeTier;
     noWasteInput.checked = !!s.noWaste;
-    const off = new Set(s.altOff || []);
+    const on = new Set(s.altEnabled || []);
     for (const e of altRowEntries) {
-      const on = !off.has(e.id);
-      e.cb.checked = on;
-      altChecked.set(e.id, on);
+      const en = on.has(e.id);
+      e.cb.checked = en;
+      altChecked.set(e.id, en);
     }
     updateSummary();
     const validRes = new Set(resourceOptions.map((o) => o.id));

@@ -662,6 +662,14 @@ input[type="range"]:focus-visible {
   background: var(--surface-2);
 }
 
+/* Notice that alternates are off by default. */
+.alt-warning {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--warning);
+}
+
 /* Selected-item icon overlaid inside a searchable picker's input. */
 .search-prefix {
   position: absolute;
