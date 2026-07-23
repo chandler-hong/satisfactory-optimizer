@@ -19,10 +19,12 @@ function svg(tag, attrs) {
 }
 
 function titleOf(n) {
-  return n.isRaw ? n.name : n.recipeName;
+  return n.isRaw || n.isOutput ? n.name : n.recipeName;
 }
 function subOf(n) {
-  return n.isRaw ? 'raw resource' : `${n.buildingName} ×${n.machines}`;
+  if (n.isRaw) return 'raw resource';
+  if (n.isOutput) return `output · ${Math.round(n.rate * 10) / 10}/min`;
+  return `${n.buildingName} ×${n.machines}`;
 }
 
 /** Width a node box needs to show its full title + sub on one line (no truncation). */
@@ -177,10 +179,11 @@ export function renderDiagram(container, graph) {
   // Nodes.
   for (const n of graph.nodes) {
     const p = pos.get(n.id);
-    const g = svg('g', { class: n.isRaw ? 'diagram-node diagram-node--raw' : 'diagram-node', transform: `translate(${p.x} ${p.y})` });
+    const cls = n.isRaw ? 'diagram-node diagram-node--raw' : n.isOutput ? 'diagram-node diagram-node--output' : 'diagram-node';
+    const g = svg('g', { class: cls, transform: `translate(${p.x} ${p.y})` });
     g.appendChild(svg('rect', { x: 0, y: 0, width: p.w, height: BOX_H, rx: 8, class: 'diagram-box' }));
 
-    const url = iconUrl(n.isRaw ? n.slug : n.buildingSlug);
+    const url = iconUrl(n.isRaw || n.isOutput ? n.slug : n.buildingSlug);
     let tx = PAD_X;
     if (url) {
       g.appendChild(svg('image', { x: PAD_X, y: (BOX_H - ICON) / 2, width: ICON, height: ICON, href: url, class: 'diagram-icon' }));

@@ -43,7 +43,7 @@ test('computePlan (max mode) builds a tiered flow graph', () => {
     targetItemId: 'mf', shardBudget: 0, beltTier: 'Mk2',
   });
   const g = view.graph;
-  assert.equal(g.nodes.length, 7); // 6 recipes + 1 raw (ore)
+  assert.equal(g.nodes.length, 8); // 6 recipes + 1 raw (ore) + 1 output (out:mf)
   const rawOre = g.nodes.find((n) => n.id === 'raw:ore');
   assert.ok(rawOre && rawOre.tier === 0 && rawOre.isRaw);
   const ingot = g.nodes.find((n) => n.id === 'ingot');
@@ -51,6 +51,11 @@ test('computePlan (max mode) builds a tiered flow graph', () => {
   assert.ok(ingot.tier < mf.tier, 'mf is downstream of ingot');
   assert.ok(g.tiers >= 4);
   assert.ok(g.edges.some((e) => e.from === 'raw:ore' && e.to === 'ingot' && e.itemId === 'ore'));
+  // explicit output sink for the target part, downstream of its producer
+  const outMf = g.nodes.find((n) => n.id === 'out:mf');
+  assert.ok(outMf && outMf.isOutput && outMf.tier > mf.tier);
+  assert.ok(approx(outMf.rate, 15), 'output node carries the net rate (15 mf/min)');
+  assert.ok(g.edges.some((e) => e.from === 'mf' && e.to === 'out:mf'));
 });
 
 test('computePlan (max mode, multiple targets) maximizes balanced sets', () => {

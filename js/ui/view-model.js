@@ -21,12 +21,15 @@ function rawUsage(dataset, recipeRates) {
 }
 
 /**
- * Tiered flow graph of the build: nodes are raw sources (tier 0) + one per
- * active recipe; edges are item flows (producer -> consumer). Tiers are the
- * longest path from raw (relaxation, guarded against cycles). Pure — the
- * diagram renderer just lays this out.
+ * Tiered flow graph of the build: nodes are raw sources (tier 0), one per
+ * active recipe, and one "output" sink per target part carrying the NET rate
+ * that leaves the system (production minus internal consumption — e.g. the
+ * wire set aside after cable-making). Edges are item flows (producer ->
+ * consumer, and producer -> output). Tiers are the longest path from raw
+ * (relaxation, guarded against cycles). Pure — the diagram renderer just lays
+ * this out.
  */
-function buildGraph(dataset, recipeRates, machinesById) {
+function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const active = [...recipeRates.keys()].filter((id) => byId.has(id));
   const push = (map, k, v) => {
@@ -98,6 +101,27 @@ function buildGraph(dataset, recipeRates, machinesById) {
       machines: machinesById.get(rid) ?? 0,
     });
   }
+  // Explicit output/storage sinks: for each target part, the net rate that
+  // leaves the system (produced minus consumed internally). This is what makes
+  // "set aside 68.6 wire while the rest becomes cable" visible in the diagram.
+  for (const itemId of targetItemIds || []) {
+    if (dataset.rawResourceIds.has(itemId)) continue;
+    let produced = 0;
+    let consumed = 0;
+    for (const rid of active) {
+      const x = recipeRates.get(rid);
+      const r = byId.get(rid);
+      for (const o of r.outputs) if (o.itemId === itemId) produced += x * o.perMin;
+      for (const inp of r.inputs) if (inp.itemId === itemId) consumed += x * inp.perMin;
+    }
+    const net = produced - consumed;
+    const prods = producersOf.get(itemId) || [];
+    if (net <= 1e-6 || prods.length === 0) continue;
+    const outTier = Math.max(...prods.map((p) => tier.get(p) ?? 1)) + 1;
+    nodes.push({ id: `out:${itemId}`, tier: outTier, isOutput: true, itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), rate: net });
+    for (const p of prods) edges.push({ from: p, to: `out:${itemId}`, itemId, rate: net / prods.length });
+  }
+
   const tiers = Math.max(0, ...nodes.map((n) => n.tier)) + 1;
   const richEdges = edges.map((e) => ({ ...e, itemName: nameOf(dataset, e.itemId), itemSlug: slugOf(dataset, e.itemId) }));
   return { nodes, edges: richEdges, tiers };
@@ -176,6 +200,6 @@ export function computePlan(dataset, req) {
     resourceMeters,
     buildRows,
     beltRows,
-    graph: buildGraph(dataset, recipeRates, machinesById),
+    graph: buildGraph(dataset, recipeRates, machinesById, mode === 'targets' ? Object.keys(req.targets || {}) : perPart.map((p) => p.itemId)),
   };
 }
