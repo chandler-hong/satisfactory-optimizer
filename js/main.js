@@ -100,11 +100,11 @@ async function boot() {
     const req = readRequest();
     if (req.mode === 'targets') {
       if (!req.targets || Object.keys(req.targets).length === 0) {
-        renderMessage(resultsEl, 'Add at least one target rate to compute a build.');
+        renderMessage(resultsEl, 'Add a resource and at least one target rate to compute a build.');
         return;
       }
     } else if (!req.targets || req.targets.length === 0) {
-      renderMessage(resultsEl, 'Add at least one part to maximize.');
+      renderMessage(resultsEl, 'Add a resource and at least one part to maximize.');
       return;
     }
     try {

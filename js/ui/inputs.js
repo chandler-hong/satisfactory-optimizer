@@ -421,11 +421,8 @@ function makeMaxTargetRow(itemOptions, onRowChange) {
  *  - `onChange(cb)` subscribes `cb` to fire on any control change; the
  *    caller (main.js) is responsible for debouncing.
  *
- * Seeds a sensible starting state (one Iron Ore node at Mk2/normal x2, and
- * Modular Frame pre-selected as the max-mode target) so the app shows a
- * real build on first load. Both are looked up by name so this degrades
- * gracefully (silently skipped, no throw) if the dataset ever lacks either
- * part.
+ * Starts empty (no resource or target rows); a "Reset" button at the top
+ * clears every control back to this initial state.
  *
  * @param {import('../domain/model.js').Dataset} dataset
  * @param {HTMLElement} sidebarEl
@@ -451,6 +448,17 @@ export function buildInputs(dataset, sidebarEl) {
   });
 
   sidebarEl.replaceChildren();
+
+  // --- Reset (clears everything back to the empty initial state) ----------
+  const resetRow = el('div');
+  resetRow.style.display = 'flex';
+  resetRow.style.justifyContent = 'flex-end';
+  resetRow.style.marginBottom = '0.5rem';
+  const resetBtn = el('button');
+  resetBtn.type = 'button';
+  resetBtn.textContent = 'Reset';
+  resetRow.appendChild(resetBtn);
+  sidebarEl.appendChild(resetRow);
 
   // --- Resources ----------------------------------------------------------
   sidebarEl.appendChild(sectionHeading('Resources'));
@@ -683,12 +691,37 @@ export function buildInputs(dataset, sidebarEl) {
 
   // No Optimize button — the build recomputes live (debounced) on every change.
 
-  // --- Seed a sensible default so the app shows a real build on load ------
-  const ironOre = resourceOptions.find((o) => o.name === 'Iron Ore');
-  addResourceRow(ironOre ? { resourceId: ironOre.id, minerTier: 'Mk2', normal: 2 } : null);
+  // --- Reset: clear every control back to the empty initial state ---------
+  function reset() {
+    for (const r of [...resourceRows]) r.el.remove();
+    resourceRows = [];
+    for (const r of [...maxRows]) r.el.remove();
+    maxRows = [];
+    for (const r of [...targetRows]) r.el.remove();
+    targetRows = [];
 
-  const modularFrame = allItems.find((it) => it.name === 'Modular Frame');
-  addMaxRow(modularFrame ? modularFrame.id : undefined);
+    shardInput.value = '0';
+    beltSelect.value = 'Mk4';
+    pipeSelect.value = 'Mk2';
+    noWasteInput.checked = false;
+
+    modeSelect.value = 'max';
+    maxSection.style.display = '';
+    targetsSection.style.display = 'none';
+
+    for (const entry of altRowEntries) {
+      entry.cb.checked = true;
+      entry.rowEl.style.display = '';
+      altChecked.set(entry.id, true);
+    }
+    altSearch.value = '';
+    updateSummary();
+
+    emitChange();
+  }
+  resetBtn.addEventListener('click', reset);
+
+  // Start empty — no resource or target rows are seeded.
 
   // --- readRequest ----------------------------------------------------------
   function readRequest() {
