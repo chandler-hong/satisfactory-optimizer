@@ -359,3 +359,137 @@ table {
   font-size: 0.8rem;
   color: var(--ink-muted);
 }
+
+/* ==========================================================================
+   Form controls — modern, comfortable dark UI
+   Controls are created as bare <input>/<select>/<button> (no classes), so
+   they're themed by element selector scoped to .app / .sidebar. The combobox
+   option buttons carry their own inline list-item styling and stay unaffected.
+   ========================================================================== */
+
+.sidebar { padding: 1.25rem; }
+
+/* Text / number / search inputs and selects share one field look. */
+.app input[type="text"],
+.app input[type="number"],
+.app input[type="search"],
+.app select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.app input::placeholder { color: var(--ink-muted); }
+
+.app input[type="text"]:hover,
+.app input[type="number"]:hover,
+.app input[type="search"]:hover,
+.app select:hover { border-color: var(--ink-muted); }
+
+.app input[type="text"]:focus-visible,
+.app input[type="number"]:focus-visible,
+.app input[type="search"]:focus-visible,
+.app select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* Selects: custom chevron (the native one is gone via appearance:none). */
+.app select {
+  cursor: pointer;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%239aa3ad' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1.5 6 6.5 11 1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+}
+
+/* Checkboxes adopt the accent. */
+.app input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Buttons: base = a clear secondary. Combobox option buttons keep their inline
+   transparent/borderless look, so they aren't turned into bordered buttons. */
+.sidebar button,
+.results button {
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.04s ease;
+}
+
+.sidebar button:hover,
+.results button:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.sidebar button:active,
+.results button:active { transform: translateY(1px); }
+
+.sidebar button:focus-visible,
+.results button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* Primary action — Optimize. */
+#optimize-btn {
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.65rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+#optimize-btn:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #fff);
+  border-color: transparent;
+}
+
+/* Sidebar section headings become labelled dividers with breathing room. */
+.sidebar h3 {
+  margin: 1.5rem 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+}
+
+.sidebar h3:first-child { margin-top: 0.25rem; }
+
+/* Field label text (the caption above each control). */
+.sidebar label > span:first-child { color: var(--ink-2); font-weight: 500; }
+
+/* Alt-recipes <details>/<summary> disclosure. */
+.sidebar summary {
+  cursor: pointer;
+  padding: 0.5rem 0;
+  color: var(--ink-2);
+  font-weight: 500;
+  user-select: none;
+}
+
+.sidebar summary:hover { color: var(--ink); }
