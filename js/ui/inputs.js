@@ -251,7 +251,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
   ocSlider.type = 'range';
   ocSlider.min = '100';
   ocSlider.max = '250';
-  ocSlider.step = '1';
+  ocSlider.step = '50'; // snap to 100 / 150 / 200 / 250
   ocSlider.value = '100';
   const ocVal = el('span', 'res-card__oc-val');
   ocRow.append(ocLabel, ocSlider, ocVal);
@@ -319,7 +319,8 @@ function makeResourceRow(resourceOptions, onRowChange) {
 
   function refresh() {
     ocVal.textContent = `${Number(ocSlider.value)}%`;
-    rateSpan.textContent = `${currentRate()}/min`;
+    // Rate readout: at most 2 decimals, trailing zeros dropped (Math.round).
+    rateSpan.textContent = `${Math.round(currentRate() * 100) / 100}/min`;
   }
 
   function handleChange() {
