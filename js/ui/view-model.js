@@ -292,10 +292,16 @@ export function computePlan(dataset, req) {
     missing: analysis.perTarget.filter((t) => t.status === 'missing').map(shapeTarget),
   };
   const hasProduction = recipeRates.size > 0;
-  if (requirements.impossible.length > 0) {
+  // Only take over the headline when there's genuinely nothing to build. When a
+  // partial plan still renders (e.g. target-rates with one good target), leave
+  // the mode's own "N target(s) short" headline — the callout explains the rest.
+  if (!hasProduction && requirements.impossible.length > 0) {
     feasible = false;
     headline = 'Can’t build from these resources';
   } else if (!hasProduction && requirements.missing.length > 0) {
+    // 'Missing' is recoverable (just add resources), so keep the headline
+    // non-critical (the amber callout carries the detail) rather than red.
+    feasible = true;
     headline = 'Add the required resources';
   }
 

@@ -277,3 +277,29 @@ test('computePlan: buildable case has no requirements issues (no regression)', (
   assert.equal(view.requirements.hasIssues, false);
   assert.match(view.headline, /15\b/); // unchanged
 });
+
+test('computePlan (target-rates): impossible target alongside a producible one keeps the plan + shortfall headline (no red override)', () => {
+  // Oil makes Plastic but not Iron Ingot. Plastic still builds (hasProduction),
+  // so the headline must stay the mode's "N short" — NOT the red "Can't build".
+  const view = computePlan(mini, {
+    mode: 'targets', caps: new Map([['Desc_LiquidOil_C', 30]]), enabledRecipeIds: MINI_ALL,
+    targets: { Desc_Plastic_C: 5, Desc_IronIngot_C: 5 },
+  });
+  assert.equal(view.hasProduction, true);                 // plastic builds
+  assert.equal(view.requirements.impossible.length, 1);   // iron ingot impossible
+  assert.equal(view.requirements.impossible[0].itemId, 'Desc_IronIngot_C');
+  assert.doesNotMatch(view.headline, /Can.t build/);      // headline NOT taken over
+  assert.match(view.headline, /short/);                   // mode's shortfall headline stands
+});
+
+test('computePlan (target-rates): a "missing" target keeps a non-critical headline (amber callout carries it)', () => {
+  const view = computePlan(mini, {
+    mode: 'targets', caps: new Map(), enabledRecipeIds: MINI_ALL,
+    targets: { Desc_IronIngot_C: 5 },
+  });
+  assert.equal(view.hasProduction, false);
+  assert.equal(view.requirements.missing.length, 1);
+  assert.equal(view.requirements.impossible.length, 0);
+  assert.equal(view.feasible, true);                      // recoverable -> not red
+  assert.match(view.headline, /required resources/);
+});
