@@ -259,7 +259,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
   ocInput.type = 'number';
   ocInput.min = '100';
   ocInput.max = '250';
-  ocInput.step = '0.5';
+  ocInput.step = '1'; // overclock % is always a whole number
   ocInput.value = '100';
   const ocPct = el('span', 'res-card__oc-pct');
   ocPct.textContent = '%';
@@ -351,7 +351,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
 
   // Set pct from any source, sync both controls, recompute.
   function setPct(p) {
-    pct = round2(clampPct(p));
+    pct = Math.round(clampPct(p)); // whole-number percent
     ocInput.value = String(pct);
     ocSlider.value = String(pct);
     handleChange();
@@ -366,7 +366,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
     // 'change' (blur/Enter) normalizes it.
     const v = Number(ocInput.value);
     if (ocInput.value.trim() === '' || !Number.isFinite(v)) return;
-    pct = round2(clampPct(v));
+    pct = Math.round(clampPct(v));
     ocSlider.value = String(pct);
     handleChange();
   });
