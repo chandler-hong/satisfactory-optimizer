@@ -97,6 +97,32 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
   input.style.boxSizing = 'border-box';
   wrap.appendChild(input);
 
+  // When showIcon, the currently-selected item's icon sits inside the input's
+  // left edge (a plain text <input> can't hold an <img>, so it's overlaid and
+  // the input gets matching left padding). Created lazily on first icon.
+  let prefixImg = null;
+  function updatePrefix(id) {
+    if (!showIcon) return;
+    const url = id ? iconUrl(byId.get(id)?.slug) : null;
+    if (url) {
+      if (!prefixImg) {
+        prefixImg = el('img', 'search-prefix');
+        prefixImg.alt = '';
+        prefixImg.addEventListener('error', () => {
+          prefixImg.style.display = 'none';
+          input.style.paddingLeft = '';
+        });
+        wrap.appendChild(prefixImg);
+      }
+      prefixImg.src = url;
+      prefixImg.style.display = '';
+      input.style.paddingLeft = '2rem';
+    } else if (prefixImg) {
+      prefixImg.style.display = 'none';
+      input.style.paddingLeft = '';
+    }
+  }
+
   const list = el('div', 'search-list');
   list.style.position = 'absolute';
   list.style.top = 'calc(100% + 4px)';
@@ -117,6 +143,7 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
   function selectOption(opt) {
     selectedId = opt.id;
     input.value = opt.name;
+    updatePrefix(opt.id);
     list.style.display = 'none';
     if (onSelectCb) onSelectCb(opt.id);
   }
@@ -193,6 +220,7 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
     setValue: (id) => {
       selectedId = id;
       input.value = labelFor(id);
+      updatePrefix(id);
     },
     onSelect: (cb) => {
       onSelectCb = cb;

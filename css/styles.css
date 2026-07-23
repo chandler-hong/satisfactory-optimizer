@@ -574,6 +574,19 @@ table {
   margin-bottom: 0.5rem;
 }
 
+/* Selected-item icon overlaid inside a searchable picker's input. */
+.search-prefix {
+  position: absolute;
+  left: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.15rem;
+  height: 1.15rem;
+  object-fit: contain;
+  pointer-events: none;
+  border-radius: 3px;
+}
+
 /* Per-part rate chips (multi-target Maximize). */
 .perpart {
   display: flex;
