@@ -307,17 +307,24 @@ export function computePlan(dataset, req) {
   }
 
   // --- Alternate-recipe improvement suggestions (independent of the LP) ----
-  const suggestTargets = mode === 'targets'
-    ? (req.targets || {})
-    : (req.targets && req.targets.length ? req.targets : req.targetItemId ? [{ itemId: req.targetItemId, weight: 1 }] : []);
-  const suggestions = suggestAlternates({
-    dataset, caps, enabledRecipeIds, mode, targets: suggestTargets, noWaste, shardBudget,
-  }).suggestions.map((s) => ({
-    recipeId: s.recipeId,
-    recipeName: s.recipeName,
-    outputSlug: slugOf(dataset, s.outputItemId),
-    benefit: s.benefit,
-  }));
+  // Defensive: suggestions are a non-essential extra, so a failure here must never
+  // blank the whole plan — fall back to no suggestions and keep the build rendering.
+  let suggestions = [];
+  try {
+    const suggestTargets = mode === 'targets'
+      ? (req.targets || {})
+      : (req.targets && req.targets.length ? req.targets : req.targetItemId ? [{ itemId: req.targetItemId, weight: 1 }] : []);
+    suggestions = suggestAlternates({
+      dataset, caps, enabledRecipeIds, mode, targets: suggestTargets, noWaste, shardBudget,
+    }).suggestions.map((s) => ({
+      recipeId: s.recipeId,
+      recipeName: s.recipeName,
+      outputSlug: slugOf(dataset, s.outputItemId),
+      benefit: s.benefit,
+    }));
+  } catch (err) {
+    console.error('suggestAlternates failed; continuing without suggestions:', err);
+  }
 
   return {
     feasible,
