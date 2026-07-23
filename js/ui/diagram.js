@@ -162,9 +162,7 @@ export function renderDiagram(container, graph) {
   defs.appendChild(marker);
   root.appendChild(defs);
 
-  // Edges first (under the boxes). Collect a label anchor per edge at the
-  // midpoint of its first segment (the gutter just after the source).
-  const edgeLabels = [];
+  // Edges first (under the boxes).
   for (const chain of chains) {
     const pts = chain.ids.map((id, i) => {
       const p = pos.get(id);
@@ -180,7 +178,6 @@ export function renderDiagram(container, graph) {
       d += ` C ${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}`;
     }
     root.appendChild(svg('path', { d, class: 'diagram-edge', 'marker-end': 'url(#diag-arrow)' }));
-    edgeLabels.push({ x: (pts[0][0] + pts[1][0]) / 2, y: (pts[0][1] + pts[1][1]) / 2, edge: chain.edge });
   }
 
   // Nodes.
@@ -208,27 +205,6 @@ export function renderDiagram(container, graph) {
     sub.textContent = subOf(n);
     g.appendChild(sub);
 
-    root.appendChild(g);
-  }
-
-  // Edge labels on top: item icon + flow rate, so each arrow's cargo (and
-  // byproduct/refinement flows) is legible.
-  for (const L of edgeLabels) {
-    const e = L.edge;
-    const txt = rateStr(e.rate, e.fluid);
-    const url = iconUrl(e.itemSlug);
-    const iconW = url ? 18 : 0;
-    const w = 12 + iconW + txt.length * 5.6;
-    const g = svg('g', { class: 'diagram-elabel', transform: `translate(${L.x} ${L.y})` });
-    g.appendChild(svg('rect', { x: -w / 2, y: -9, width: w, height: 18, rx: 5, class: 'diagram-elabel-bg' }));
-    let tx = -w / 2 + 6;
-    if (url) {
-      g.appendChild(svg('image', { x: tx, y: -8, width: 16, height: 16, href: url }));
-      tx += iconW;
-    }
-    const t = svg('text', { x: tx, y: 3.5, class: 'diagram-elabel-text' });
-    t.textContent = txt;
-    g.appendChild(t);
     root.appendChild(g);
   }
 

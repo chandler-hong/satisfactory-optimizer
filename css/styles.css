@@ -733,18 +733,6 @@ input[type="range"]:focus-visible {
   stroke-dasharray: 5 3;
 }
 
-/* Edge label pill: item icon + flow rate. */
-.diagram-elabel-bg {
-  fill: var(--surface);
-  stroke: var(--border);
-  stroke-width: 1;
-  opacity: 0.92;
-}
-
-.diagram-elabel-text {
-  fill: var(--ink-2);
-  font: 600 10px "Nunito", system-ui, sans-serif;
-}
 
 .diagram-title {
   fill: var(--ink);
