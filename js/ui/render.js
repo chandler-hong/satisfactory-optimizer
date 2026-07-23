@@ -1,5 +1,6 @@
 import { iconUrl } from './icons.js';
 import { fmt1 } from './view-model.js';
+import { renderDiagram } from './diagram.js';
 
 const FALLBACK_EMOJI = { building: '⚙', fluid: '💧', item: '📦' };
 
@@ -251,6 +252,36 @@ function renderBeltList(rows) {
 }
 
 /**
+ * Per-part rate chips, shown under the headline when maximizing more than one
+ * part (the headline reads "N sets/min", so the per-part rates go here). For a
+ * single part the headline already carries the rate, so this is skipped.
+ */
+function renderPerPart(perPart) {
+  const wrap = el('div', 'perpart');
+  for (const p of perPart) {
+    const chip = el('span', 'perpart__item');
+    chip.appendChild(makeIcon(p.slug, p.name, 'item'));
+    const label = el('span');
+    label.textContent = `${fmt1(p.rate)} ${p.name}/min`;
+    chip.appendChild(label);
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+
+/** "Factory diagram" section wrapping the SVG in a horizontally scrollable box. */
+function renderDiagramSection(graph) {
+  const wrap = el('section');
+  const heading = el('h3');
+  heading.textContent = 'Factory diagram';
+  wrap.appendChild(heading);
+  const scroll = el('div', 'diagram-scroll');
+  renderDiagram(scroll, graph);
+  wrap.appendChild(scroll);
+  return wrap;
+}
+
+/**
  * Render a PlanView into rootEl. Idempotent: clears rootEl then rebuilds.
  * All item/recipe/building names are inserted via textContent — never
  * innerHTML — so untrusted dataset strings can't inject markup.
@@ -262,6 +293,10 @@ export function renderResults(rootEl, planView) {
 
   rootEl.appendChild(renderHeadline(planView));
 
+  if (planView.perPart && planView.perPart.length > 1) {
+    rootEl.appendChild(renderPerPart(planView.perPart));
+  }
+
   if (planView.shortfalls && planView.shortfalls.length > 0) {
     rootEl.appendChild(renderShortfalls(planView.shortfalls));
   }
@@ -270,4 +305,6 @@ export function renderResults(rootEl, planView) {
   rootEl.appendChild(renderMeters(planView.resourceMeters));
   rootEl.appendChild(renderBuildTable(planView.buildRows));
   rootEl.appendChild(renderBeltList(planView.beltRows));
+
+  if (planView.graph) rootEl.appendChild(renderDiagramSection(planView.graph));
 }
