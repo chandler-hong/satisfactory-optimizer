@@ -214,7 +214,7 @@ function makeResourceRow(resourceOptions, onRowChange) {
   const row = el('div', 'res-card');
 
   const topRow = el('div', 'res-card__row');
-  const picker = createSearchSelect({ options: resourceOptions, placeholder: 'Resource…' });
+  const picker = createSearchSelect({ options: resourceOptions, placeholder: 'Resource…', showIcon: true });
   picker.el.style.flex = '1 1 9rem';
   topRow.appendChild(picker.el);
   const tierSelect = makeTierSelect(MINER_TIERS, 'Mk1'); // appended to topRow only for solids
@@ -350,6 +350,33 @@ function makeTargetRow(itemOptions, onRowChange) {
   };
 }
 
+/** One "maximize" target row: item picker + weight (parts per set) + remove. */
+function makeMaxTargetRow(itemOptions, onRowChange) {
+  const row = el('div', 'target-row');
+  const picker = createSearchSelect({ options: itemOptions, placeholder: 'Part…', showIcon: true });
+  picker.el.style.flex = '1 1 9rem';
+  row.appendChild(picker.el);
+  const weightInput = numberInput({ value: 1, min: 0, step: 'any', width: '4rem' });
+  weightInput.title = 'Weight — parts per set (equal = balanced)';
+  row.appendChild(weightInput);
+  const removeBtn = el('button');
+  removeBtn.type = 'button';
+  removeBtn.textContent = 'Remove';
+  row.appendChild(removeBtn);
+  picker.onSelect(onRowChange);
+  weightInput.addEventListener('input', onRowChange);
+  return {
+    el: row,
+    removeBtn,
+    getItemId: () => picker.getValue(),
+    getWeight: () => {
+      const w = Number(weightInput.value);
+      return Number.isFinite(w) && w > 0 ? w : 1;
+    },
+    setItem: (id) => picker.setValue(id),
+  };
+}
+
 /**
  * Build the sidebar input panel. Renders all controls into `sidebarEl` and
  * returns `{ readRequest, onChange }`:
@@ -385,7 +412,7 @@ export function buildInputs(dataset, sidebarEl) {
   const resourceOptions = [...dataset.rawResourceIds].map((id) => {
     const it = dataset.items.get(id);
     const kind = !it?.liquid ? 'miner' : FLUID_KIND[id] || 'water';
-    return { id, name: it?.name ?? id, kind };
+    return { id, name: it?.name ?? id, slug: it?.slug, kind };
   });
 
   sidebarEl.replaceChildren();
@@ -465,11 +492,34 @@ export function buildInputs(dataset, sidebarEl) {
   modeSelect.value = 'max';
   sidebarEl.appendChild(fieldRow('Mode', modeSelect));
 
-  const targetPicker = createSearchSelect({ options: allItems, placeholder: 'Target part…', showIcon: true });
+  // Maximize mode: one or more target parts as balanced (optionally weighted) sets.
   const maxSection = el('div');
-  maxSection.appendChild(fieldRow('Target', targetPicker.el));
+  const maxHint = el('p', 'hint');
+  maxHint.textContent = 'Maximize matched "sets". Equal weights → equal amounts; raise one weight to make more of it per set.';
+  maxSection.appendChild(maxHint);
+  const maxRowsEl = el('div');
+  maxSection.appendChild(maxRowsEl);
+  let maxRows = [];
+  function addMaxRow(seedItemId) {
+    const row = makeMaxTargetRow(allItems, emitChange);
+    row.removeBtn.addEventListener('click', () => {
+      maxRows = maxRows.filter((r) => r !== row);
+      row.el.remove();
+      emitChange();
+    });
+    if (seedItemId) row.setItem(seedItemId);
+    maxRows.push(row);
+    maxRowsEl.appendChild(row.el);
+  }
+  const addMaxBtn = el('button');
+  addMaxBtn.type = 'button';
+  addMaxBtn.textContent = '+ Add part';
+  addMaxBtn.addEventListener('click', () => {
+    addMaxRow();
+    emitChange();
+  });
+  maxSection.appendChild(addMaxBtn);
   sidebarEl.appendChild(maxSection);
-  targetPicker.onSelect(emitChange);
 
   const targetsSection = el('div');
   targetsSection.style.display = 'none';
@@ -560,24 +610,14 @@ export function buildInputs(dataset, sidebarEl) {
 
   sidebarEl.appendChild(details);
 
-  // --- Optimize button ------------------------------------------------------
-  // main.js wires this button's click to an undebounced recompute via
-  // getElementById('optimize-btn') (same pattern as the existing
-  // #theme-toggle lookup); it is not part of the returned interface because
-  // onChange/readRequest already cover the debounced live-update path.
-  const optimizeBtn = el('button');
-  optimizeBtn.id = 'optimize-btn';
-  optimizeBtn.type = 'button';
-  optimizeBtn.textContent = 'Optimize';
-  optimizeBtn.style.marginTop = '0.5rem';
-  sidebarEl.appendChild(optimizeBtn);
+  // No Optimize button — the build recomputes live (debounced) on every change.
 
   // --- Seed a sensible default so the app shows a real build on load ------
   const ironOre = resourceOptions.find((o) => o.name === 'Iron Ore');
   addResourceRow(ironOre ? { resourceId: ironOre.id, minerTier: 'Mk2', normal: 2 } : null);
 
   const modularFrame = allItems.find((it) => it.name === 'Modular Frame');
-  if (modularFrame) targetPicker.setValue(modularFrame.id);
+  addMaxRow(modularFrame ? modularFrame.id : undefined);
 
   // --- readRequest ----------------------------------------------------------
   function readRequest() {
@@ -607,8 +647,9 @@ export function buildInputs(dataset, sidebarEl) {
     };
 
     if (mode === 'max') {
-      const id = targetPicker.getValue();
-      if (id) req.targetItemId = id;
+      req.targets = maxRows
+        .map((r) => ({ itemId: r.getItemId(), weight: r.getWeight() }))
+        .filter((t) => t.itemId);
     } else {
       const targets = {};
       for (const row of targetRows) {

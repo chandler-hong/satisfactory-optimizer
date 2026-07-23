@@ -103,8 +103,8 @@ async function boot() {
         renderMessage(resultsEl, 'Add at least one target rate to compute a build.');
         return;
       }
-    } else if (!req.targetItemId) {
-      renderMessage(resultsEl, 'Select a target part to compute a build.');
+    } else if (!req.targets || req.targets.length === 0) {
+      renderMessage(resultsEl, 'Add at least one part to maximize.');
       return;
     }
     try {
@@ -116,7 +116,6 @@ async function boot() {
   }
 
   onChange(debounce(recompute, 150));
-  document.getElementById('optimize-btn')?.addEventListener('click', recompute);
 
   recompute();
 }
