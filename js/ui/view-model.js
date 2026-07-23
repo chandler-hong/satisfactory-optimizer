@@ -144,20 +144,21 @@ function optionGraph(dataset, r, itemId, surplusRate) {
   const inEntry = r.inputs.find((i) => i.itemId === itemId);
   const inPerMin = inEntry ? inEntry.perMin : 0;
   // Whole machines only, rounded down — you can't build a fraction of a machine;
-  // at least one so the option is meaningful.
-  const machines = inPerMin > 0 ? Math.max(1, Math.floor(surplusRate / inPerMin)) : 1;
+  // at least one so the option is meaningful. The +1e-6 absorbs floating-point
+  // dust (e.g. a surplus of 79.9999999 that should divide evenly by 40).
+  const machines = inPerMin > 0 ? Math.max(1, Math.floor(surplusRate / inPerMin + 1e-6)) : 1;
   const b = dataset.buildings.get(r.buildingId);
   const recId = `rec:${r.id}`;
   const nodes = [];
   const edges = [];
   for (const inp of r.inputs) {
-    const rate = inp.perMin * machines;
+    const rate = Math.floor(inp.perMin * machines); // whole materials, rounded down
     nodes.push({ id: `in:${inp.itemId}`, tier: 0, isInput: true, itemId: inp.itemId, name: nameOf(dataset, inp.itemId), slug: slugOf(dataset, inp.itemId), rate, fluid: fluidOf(dataset, inp.itemId) });
     edges.push({ from: `in:${inp.itemId}`, to: recId, itemId: inp.itemId, rate });
   }
   nodes.push({ id: recId, tier: 1, recipeName: r.name, buildingName: b?.name ?? '', buildingSlug: b?.slug, machines });
   for (const o of r.outputs) {
-    const rate = o.perMin * machines;
+    const rate = Math.floor(o.perMin * machines); // whole materials, rounded down
     nodes.push({ id: `out:${o.itemId}`, tier: 2, isOutput: true, itemId: o.itemId, name: nameOf(dataset, o.itemId), slug: slugOf(dataset, o.itemId), rate, fluid: fluidOf(dataset, o.itemId) });
     edges.push({ from: recId, to: `out:${o.itemId}`, itemId: o.itemId, rate });
   }

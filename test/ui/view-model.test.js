@@ -176,3 +176,34 @@ test('computePlan offers refinement options for a surplus byproduct', () => {
   const outRef = opt.graph.nodes.find((n) => n.id === 'out:ref');
   assert.ok(outRef && outRef.isOutput && approx(outRef.rate, 10), 'option output scaled to the surplus (20 byp -> 10 refined)');
 });
+
+test('refinement options use whole machines (FP-safe) and whole materials (round down)', () => {
+  const ds = {
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore', liquid: false }],
+      ['main', { id: 'main', name: 'Main', slug: 'main', liquid: false }],
+      ['byp', { id: 'byp', name: 'Byproduct', slug: 'byp', liquid: false }],
+      ['wire', { id: 'wire', name: 'Wire', slug: 'wire', liquid: false }],
+      ['cable', { id: 'cable', name: 'Cable', slug: 'cable', liquid: false }],
+      ['coke', { id: 'coke', name: 'Coke', slug: 'coke', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b', basePowerMW: 10, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['ore']),
+    recipes: [
+      { id: 'rec', name: 'Main', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 60 }], outputs: [{ itemId: 'main', perMin: 30 }, { itemId: 'byp', perMin: 40 }] },
+      { id: 'coke', name: 'Coke', buildingId: 'b', alternate: false, inputs: [{ itemId: 'byp', perMin: 40 }], outputs: [{ itemId: 'coke', perMin: 120 }] },
+      { id: 'cable', name: 'Coated Cable', buildingId: 'b', alternate: false, inputs: [{ itemId: 'byp', perMin: 15 }, { itemId: 'wire', perMin: 37.5 }], outputs: [{ itemId: 'cable', perMin: 67.5 }] },
+    ],
+  };
+  // 120 ore -> 2 Main machines -> byp surplus 80 (only 'rec' enabled).
+  const view = computePlan(ds, {
+    mode: 'max', caps: new Map([['ore', 120]]), enabledRecipeIds: new Set(['rec']),
+    targets: [{ itemId: 'main', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  const ref = view.refinements.find((r) => r.itemId === 'byp');
+  const cokeRec = ref.options.find((o) => o.recipeId === 'coke').graph.nodes.find((n) => n.id.startsWith('rec:'));
+  assert.equal(cokeRec.machines, 2, 'byp 80 / 40 = 2 whole machines (not 1 from float dust)');
+  const cableOpt = ref.options.find((o) => o.recipeId === 'cable');
+  assert.equal(cableOpt.graph.nodes.find((n) => n.id.startsWith('rec:')).machines, 5, 'floor(80/15) = 5 machines');
+  assert.equal(cableOpt.graph.nodes.find((n) => n.id === 'in:wire').rate, 187, 'wire material rounded down (5 * 37.5 = 187.5 -> 187)');
+});
