@@ -209,20 +209,18 @@ function createSearchSelect({ options, placeholder = 'Search…', showIcon = fal
  * `readRequest`.
  */
 function makeResourceRow(resourceOptions, onRowChange) {
+  const kindById = new Map(resourceOptions.map((o) => [o.id, o.kind || 'miner']));
+
   const row = el('div', 'res-card');
 
   const topRow = el('div', 'res-card__row');
   const picker = createSearchSelect({ options: resourceOptions, placeholder: 'Resource…' });
   picker.el.style.flex = '1 1 9rem';
-  const tierSelect = makeTierSelect(MINER_TIERS, 'Mk1');
-  topRow.append(picker.el, tierSelect);
+  topRow.appendChild(picker.el);
+  const tierSelect = makeTierSelect(MINER_TIERS, 'Mk1'); // appended to topRow only for solids
   row.appendChild(topRow);
 
   const nodesRow = el('div', 'res-card__nodes');
-  const impureInput = numberInput({ value: 0, width: '100%' });
-  const normalInput = numberInput({ value: 0, width: '100%' });
-  const pureInput = numberInput({ value: 0, width: '100%' });
-  nodesRow.append(fieldRow('Impure', impureInput), fieldRow('Normal', normalInput), fieldRow('Pure', pureInput));
   row.appendChild(nodesRow);
 
   const footRow = el('div', 'res-card__row');
@@ -236,17 +234,49 @@ function makeResourceRow(resourceOptions, onRowChange) {
   footRow.appendChild(removeBtn);
   row.appendChild(footRow);
 
+  // Extraction inputs are rebuilt whenever the selected resource's kind
+  // changes. `inputs` holds the live refs for the current kind.
+  let kind = 'miner';
+  let inputs = {};
+
+  function buildExtraction(k) {
+    kind = k;
+    nodesRow.replaceChildren();
+    tierSelect.remove();
+    if (k === 'water') {
+      const count = numberInput({ value: 0, width: '100%' });
+      inputs = { count };
+      nodesRow.appendChild(fieldRow('Extractors', count));
+    } else {
+      if (k === 'miner') topRow.appendChild(tierSelect);
+      const impure = numberInput({ value: 0, width: '100%' });
+      const normal = numberInput({ value: 0, width: '100%' });
+      const pure = numberInput({ value: 0, width: '100%' });
+      inputs = { impure, normal, pure };
+      const suffix = k === 'well' ? ' sat.' : '';
+      nodesRow.append(
+        fieldRow('Impure' + suffix, impure),
+        fieldRow('Normal' + suffix, normal),
+        fieldRow('Pure' + suffix, pure),
+      );
+    }
+    for (const inp of Object.values(inputs)) inp.addEventListener('input', handleChange);
+  }
+
+  function ovr() {
+    const o = readOverride(overrideInput);
+    return o !== null ? { override: o } : {};
+  }
+
   function config() {
-    const cfg = {
-      kind: 'miner',
-      minerTier: tierSelect.value,
-      impure: readCount(impureInput),
-      normal: readCount(normalInput),
-      pure: readCount(pureInput),
-    };
-    const override = readOverride(overrideInput);
-    if (override !== null) cfg.override = override;
-    return cfg;
+    if (kind === 'water') return { kind: 'water', count: readCount(inputs.count), ...ovr() };
+    if (kind === 'oil') {
+      return { kind: 'oil', impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure), ...ovr() };
+    }
+    if (kind === 'well') {
+      return { kind: 'well', satellites: { impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure) }, ...ovr() };
+    }
+    return { kind: 'miner', minerTier: tierSelect.value, impure: readCount(inputs.impure), normal: readCount(inputs.normal), pure: readCount(inputs.pure), ...ovr() };
   }
 
   function currentRate() {
@@ -262,12 +292,14 @@ function makeResourceRow(resourceOptions, onRowChange) {
     onRowChange();
   }
 
-  picker.onSelect(handleChange);
+  picker.onSelect((id) => {
+    buildExtraction(kindById.get(id) || 'miner');
+    handleChange();
+  });
   tierSelect.addEventListener('change', handleChange);
-  for (const input of [impureInput, normalInput, pureInput, overrideInput]) {
-    input.addEventListener('input', handleChange);
-  }
+  overrideInput.addEventListener('input', handleChange);
 
+  buildExtraction('miner');
   refresh();
 
   return {
@@ -276,9 +308,12 @@ function makeResourceRow(resourceOptions, onRowChange) {
     currentRate,
     removeBtn,
     seed({ resourceId, minerTier, normal }) {
-      if (resourceId) picker.setValue(resourceId);
-      if (minerTier) tierSelect.value = minerTier;
-      if (normal !== undefined) normalInput.value = String(normal);
+      if (resourceId) {
+        picker.setValue(resourceId);
+        buildExtraction(kindById.get(resourceId) || 'miner');
+      }
+      if (minerTier && kind === 'miner') tierSelect.value = minerTier;
+      if (normal !== undefined && inputs.normal) inputs.normal.value = String(normal);
       refresh();
     },
   };
@@ -342,21 +377,23 @@ export function buildInputs(dataset, sidebarEl) {
 
   const allItems = [...dataset.items.values()].map((it) => ({ id: it.id, name: it.name, slug: it.slug }));
 
-  // Resource-row UI only models miner-tier extraction (impure/normal/pure
-  // node counts), per this task's scope, so only solid (non-liquid) raw
-  // resources are offered here; fluids (Water/Crude Oil/Nitrogen Gas) need
-  // different extractor mechanics (capsFromInputs's 'oil'/'water'/'well'
-  // kinds) that this control set does not expose. See task-5-report.md.
-  const resourceOptions = [...dataset.rawResourceIds]
-    .filter((id) => !dataset.items.get(id)?.liquid)
-    .map((id) => ({ id, name: dataset.items.get(id)?.name ?? id }));
+  // Every raw resource is offered; each row adapts its extraction inputs to
+  // the resource's kind — solid ore (miner tier + purity), water (extractor
+  // count), crude oil (oil-extractor purity), or gas (resource-well
+  // satellites). capsFromInputs handles all four kinds.
+  const FLUID_KIND = { Desc_Water_C: 'water', Desc_LiquidOil_C: 'oil', Desc_NitrogenGas_C: 'well' };
+  const resourceOptions = [...dataset.rawResourceIds].map((id) => {
+    const it = dataset.items.get(id);
+    const kind = !it?.liquid ? 'miner' : FLUID_KIND[id] || 'water';
+    return { id, name: it?.name ?? id, kind };
+  });
 
   sidebarEl.replaceChildren();
 
   // --- Resources ----------------------------------------------------------
   sidebarEl.appendChild(sectionHeading('Resources'));
   const resourceHint = el('p', 'hint');
-  resourceHint.textContent = 'Solid ore resources only for now — fluid inputs (water, oil, …) are coming soon.';
+  resourceHint.textContent = 'Add ore, water, oil, or gas — each row adapts to how the resource is extracted.';
   sidebarEl.appendChild(resourceHint);
   const resourceRowsEl = el('div');
   sidebarEl.appendChild(resourceRowsEl);
