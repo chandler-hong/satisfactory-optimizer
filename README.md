@@ -36,8 +36,9 @@ is unit-tested; the DOM is verified by running the app.)
 
 Vanilla ES modules, **no build step**. Recipe/item/building data is loaded at runtime from a
 pinned community dataset (greeny/SatisfactoryTools via jsDelivr) and cached in
-`localStorage`. The LP solver (`javascript-lp-solver`, MIT) is vendored. Icons are hotlinked
-from satisfactorytools.com.
+`localStorage`. The LP solver (`javascript-lp-solver`, MIT) is vendored. Icons are vendored
+under `assets/icons/` (fetched once via `scripts/fetch-icons.mjs`), so the site is fully
+self-contained.
 
 ## Attribution
 

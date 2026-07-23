@@ -312,11 +312,10 @@ Phase 4 (browser UI) shipped: sidebar inputs + live results (stat tiles, resourc
 build table, belt report) with icons, both modes, dark/light, responsive — rendering
 verified via a headless screenshot. Deferred:
 
-- **Fluid resources in the resource picker:** the picker is solids/miner-only today, so
-  targets needing water/oil/etc. compute as infeasible. Add fluid resource inputs (the
-  oil/water/well kinds — `capsFromInputs` already supports them).
-- **Icons before public launch:** currently hotlinked from satisfactorytools.com (their
-  bandwidth, and fragile if paths move). Vendor the icon set or use a proper image CDN.
+- ~~**Fluid resources in the resource picker**~~ — **DONE:** each resource row now adapts
+  to the resource's kind (miner / water extractor / oil extractor / resource well).
+- ~~**Icons before public launch**~~ — **DONE:** icons are vendored under `assets/icons/`
+  (fetched via `scripts/fetch-icons.mjs`); no runtime hotlink.
 - **Early/mid/endgame target catalog:** group the target picker by game phase (needs the
   schematics→tier data-layer extension deferred in Phase 4 planning).
 - **Accessibility:** the hand-rolled searchable combobox lacks ARIA roles + keyboard-arrow
