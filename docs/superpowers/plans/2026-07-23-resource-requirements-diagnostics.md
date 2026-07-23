@@ -650,7 +650,7 @@ In `css/styles.css`, append after the `.hint` block (~line 410):
 - [ ] **Step 4: Verify (tests + screenshot)**
 
 Run: `npm test`
-Expected: PASS 68/68 (65 prior + Task 1/2/3 additions; render has no unit tests).
+Expected: PASS — 0 failures (65 baseline + 15 new = 80 tests; render itself has no unit tests).
 
 Then verify the UI in the browser:
 
@@ -842,7 +842,7 @@ In `css/styles.css`:
 - [ ] **Step 5: Verify (tests + screenshot)**
 
 Run: `npm test`
-Expected: PASS 68/68 (unchanged — this task is UI-only, no test-affecting logic).
+Expected: PASS — 0 failures, 80 tests (unchanged from Task 3; this task is UI-only, no test-affecting logic).
 
 Browser check (server from Task 4, or restart it): switch to **Maximize**, **+ Add part**, open the picker and type "control" — confirm options like "Adaptive Control Unit" render on **one line** in a wider popup; select **Heavy Modular Frame** and confirm the full name shows (not "Heavy M…") with the Weight box + Remove on the line below. Repeat in **Target rates** mode (Rate /min row). Confirm the Resources section shows the "New veins default to Normal purity…" hint. Screenshot dark + toggle light once.
 
@@ -865,7 +865,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Full test suite**
 
 Run: `npm test`
-Expected: PASS, 68/68 (65 baseline + 3 new files' worth of tests; confirm 0 fail).
+Expected: PASS — 0 failures, 80 tests total (65 baseline + 15 new from Tasks 1–3).
 
 - [ ] **Step 2: Final manual smoke (both modes, both themes)**
 
