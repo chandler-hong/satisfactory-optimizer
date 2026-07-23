@@ -119,3 +119,18 @@ test('analyzeRequirements: anyImpossible / anyMissing summary flags', () => {
   assert.equal(res.anyMissing, false);
   assert.equal(res.perTarget.find((p) => p.itemId === 'Desc_Plastic_C').status, 'ok');
 });
+
+test('analyzeRequirements: available raw not in user-added (auto-water case) shows added:true', () => {
+  // gadget needs raw x + raw y; x is AVAILABLE (e.g. auto-unlimited water) but
+  // NOT user-added, y is neither. Guards that deps.added uses availableRawIds
+  // while severity uses userAddedRawIds -> missing/no-resources (not partial),
+  // and x shows added:true despite being absent from userAddedRawIds.
+  const gadgetDs = {
+    rawResourceIds: new Set(['x', 'y']),
+    recipes: [{ id: 'mk', inputs: [{ itemId: 'x', perMin: 1 }, { itemId: 'y', perMin: 1 }], outputs: [{ itemId: 'gadget', perMin: 1 }] }],
+  };
+  const p = analyzeRequirements(gadgetDs, new Set(['mk']), new Set(['x']), new Set([]), ['gadget']).perTarget[0];
+  assert.equal(p.status, 'missing');
+  assert.equal(p.reason, 'no-resources');
+  assert.deepEqual(p.deps, [{ itemId: 'x', added: true }, { itemId: 'y', added: false }]);
+});
