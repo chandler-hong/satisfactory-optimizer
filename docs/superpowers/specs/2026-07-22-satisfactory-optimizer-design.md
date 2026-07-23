@@ -305,3 +305,21 @@ Important is an explicit re-deferral (below), not a silent drop.
   `DEFAULT_POWER_EXPONENT` into a shared helper.
 - **Done this phase (noted for completeness):** non-integer/NaN shard budget is floored;
   unknown belt/pipe tier now throws.
+
+## 21. Deferred from Phase 4 (tracked backlog)
+
+Phase 4 (browser UI) shipped: sidebar inputs + live results (stat tiles, resource meters,
+build table, belt report) with icons, both modes, dark/light, responsive — rendering
+verified via a headless screenshot. Deferred:
+
+- **Fluid resources in the resource picker:** the picker is solids/miner-only today, so
+  targets needing water/oil/etc. compute as infeasible. Add fluid resource inputs (the
+  oil/water/well kinds — `capsFromInputs` already supports them).
+- **Icons before public launch:** currently hotlinked from satisfactorytools.com (their
+  bandwidth, and fragile if paths move). Vendor the icon set or use a proper image CDN.
+- **Early/mid/endgame target catalog:** group the target picker by game phase (needs the
+  schematics→tier data-layer extension deferred in Phase 4 planning).
+- **Accessibility:** the hand-rolled searchable combobox lacks ARIA roles + keyboard-arrow
+  navigation; the target dropdown caps at 50 matches; a manual rate override doesn't visually
+  disable the count fields it supersedes.
+- **URL-state sharing**; **variable-power accurate power** (carried from §20).
