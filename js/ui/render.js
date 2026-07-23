@@ -338,6 +338,56 @@ function renderRefinements(refinements) {
   return wrap;
 }
 
+/** ✓/✗ dependency chips for a requirements callout. */
+function renderReqDeps(deps) {
+  const wrap = el('div', 'req-deps');
+  for (const d of deps) {
+    const chip = el('span', d.added ? 'req-dep req-dep--have' : 'req-dep req-dep--need');
+    const mark = el('span', 'req-dep__mark');
+    mark.textContent = d.added ? '✓' : '✗';
+    chip.appendChild(mark);
+    chip.appendChild(makeIcon(d.slug, d.name, d.fluid ? 'fluid' : 'item'));
+    const name = el('span');
+    name.textContent = d.name;
+    chip.appendChild(name);
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+
+/**
+ * Requirements diagnostics: a red `.critical` callout per impossible target and
+ * an amber `.warning` callout per missing target, each listing raw dependencies
+ * as ✓ added / ✗ missing chips. Names via textContent (XSS-safe).
+ */
+function renderRequirements(requirements) {
+  const frag = document.createDocumentFragment();
+  for (const t of requirements.impossible) {
+    const box = el('div', 'requirements requirements--critical');
+    const p = el('p');
+    p.textContent = t.reason === 'no-recipe'
+      ? `No enabled recipe produces ${t.name}. Try enabling the alternate recipe it needs.`
+      : `${t.name} can’t be made from the resources you’ve added — recheck your resources or target.`;
+    box.appendChild(p);
+    if (t.deps.length) {
+      const label = el('p', 'req-label');
+      label.textContent = 'Requires:';
+      box.appendChild(label);
+      box.appendChild(renderReqDeps(t.deps));
+    }
+    frag.appendChild(box);
+  }
+  for (const t of requirements.missing) {
+    const box = el('div', 'requirements requirements--warning');
+    const p = el('p');
+    p.textContent = `To make ${t.name} you need:`;
+    box.appendChild(p);
+    box.appendChild(renderReqDeps(t.deps));
+    frag.appendChild(box);
+  }
+  return frag;
+}
+
 /**
  * Render a PlanView into rootEl. Idempotent: clears rootEl then rebuilds.
  * All item/recipe/building names are inserted via textContent — never
@@ -349,6 +399,14 @@ export function renderResults(rootEl, planView) {
   rootEl.replaceChildren();
 
   rootEl.appendChild(renderHeadline(planView));
+
+  if (planView.requirements && planView.requirements.hasIssues) {
+    rootEl.appendChild(renderRequirements(planView.requirements));
+  }
+
+  // Nothing to build — the requirements callout(s) above explain why. Skip the
+  // empty tiles / "No production required" table / empty meters / diagram.
+  if (!planView.hasProduction) return;
 
   if (planView.perPart && planView.perPart.length > 1) {
     rootEl.appendChild(renderPerPart(planView.perPart));

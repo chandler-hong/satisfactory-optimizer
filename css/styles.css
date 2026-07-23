@@ -410,6 +410,41 @@ table {
 }
 
 /* ==========================================================================
+   Requirements / feasibility callouts (missing / impossible targets)
+   Rendered under the headline. Color is always paired with a ✓/✗ mark + text.
+   ========================================================================== */
+.requirements {
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 0.5rem;
+  background: var(--surface);
+  font-size: 0.88rem;
+}
+.requirements--warning { border-left-color: var(--warning); }
+.requirements--critical { border-left-color: var(--critical); }
+.requirements p { margin: 0 0 0.4rem; color: var(--ink); }
+.requirements .req-label { color: var(--ink-2); font-size: 0.8rem; margin: 0.3rem 0 0.35rem; }
+
+.req-deps { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.req-dep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.82rem;
+}
+.req-dep .icon { width: 1rem; height: 1rem; }
+.req-dep--have { color: var(--ink-muted); }
+.req-dep--have .req-dep__mark { color: var(--good); }
+.req-dep--need { color: var(--ink); border-color: color-mix(in srgb, var(--critical) 45%, var(--border)); }
+.req-dep--need .req-dep__mark { color: var(--critical); }
+.req-dep__mark { font-weight: 700; }
+
+/* ==========================================================================
    Form controls — modern, comfortable dark UI
    Controls are created as bare <input>/<select>/<button> (no classes), so
    they're themed by element selector scoped to .app / .sidebar. The combobox
