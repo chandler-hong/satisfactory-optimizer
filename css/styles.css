@@ -62,10 +62,19 @@ body {
 
 body {
   font-family: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--surface);
   color: var(--ink);
   line-height: 1.55;
   min-height: 100vh;
+  /* Wallpaper backdrop under a heavy theme-tinted overlay so it stays subtle —
+     UI panels are opaque, so content readability is never affected. */
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--surface) 80%, transparent), color-mix(in srgb, var(--surface) 80%, transparent)),
+    url("../assets/bg.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
 h1,

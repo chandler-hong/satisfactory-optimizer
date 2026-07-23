@@ -251,7 +251,7 @@ export function computePlan(dataset, req) {
         itemName: outId ? nameOf(dataset, outId) : '',
         itemSlug: outId ? slugOf(dataset, outId) : undefined,
         machines: pr.machines,
-        clockPct: fmt1(pr.clock * 100),
+        clockPct: Math.floor(pr.clock * 100 + 1e-6), // whole %, rounded down (epsilon absorbs float dust near 100)
         shards: pr.shards,
         powerMW: fmt1(pr.powerMW),
       };
