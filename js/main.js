@@ -1,6 +1,7 @@
 import { loadDataset } from './data/loader.js';
 import { computePlan } from './ui/view-model.js';
 import { renderResults } from './ui/render.js';
+import { buildInputs } from './ui/inputs.js';
 
 const THEME_KEY = 'theme';
 
@@ -29,41 +30,82 @@ document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
 
 console.log('boot');
 
-/**
- * Demo plan: max Modular Frame output from a 480/min Iron Ore cap, base
- * (non-alternate) recipes only. Exercises the renderer against real
- * dataset names/slugs/icons until Task 5 wires up the real input panel.
- */
-async function renderDemoPlan(dataset, resultsEl) {
-  const modularFrame = [...dataset.items.values()].find((item) => item.name === 'Modular Frame');
-  if (!modularFrame) throw new Error('Modular Frame item not found in dataset');
-
-  const enabledRecipeIds = new Set(dataset.recipes.filter((r) => !r.alternate).map((r) => r.id));
-
-  const req = {
-    mode: 'max',
-    caps: new Map([['Desc_OreIron_C', 480]]),
-    enabledRecipeIds,
-    targetItemId: modularFrame.id,
-    shardBudget: 0,
-    beltTier: 'Mk4',
-    pipeTier: 'Mk2',
+/** Debounce: delay invoking `fn` until `wait` ms after the last call. */
+function debounce(fn, wait) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
   };
-
-  renderResults(resultsEl, computePlan(dataset, req));
 }
 
+function renderMessage(rootEl, text) {
+  rootEl.replaceChildren();
+  const p = document.createElement('p');
+  p.textContent = text;
+  rootEl.appendChild(p);
+}
+
+function renderLoadError(rootEl, err, onRetry) {
+  rootEl.replaceChildren();
+  const p = document.createElement('p');
+  p.textContent = `Failed to load dataset: ${err?.message ?? String(err)}`;
+  rootEl.appendChild(p);
+  const retryBtn = document.createElement('button');
+  retryBtn.type = 'button';
+  retryBtn.textContent = 'Retry';
+  retryBtn.addEventListener('click', onRetry);
+  rootEl.appendChild(retryBtn);
+}
+
+/**
+ * Boot the real app: load the dataset (showing loading/error states), build
+ * the sidebar input panel, and wire live recompute. Re-entrant: on a failed
+ * load, the Retry button calls `boot()` again from scratch; `buildInputs`
+ * is never called on the failure path, so there are no stale listeners to
+ * clean up on retry.
+ */
 async function boot() {
   const resultsEl = document.getElementById('results');
-  if (!resultsEl) return;
+  const sidebarEl = document.getElementById('inputs');
+  if (!resultsEl || !sidebarEl) return;
+
   resultsEl.textContent = 'Loading…';
+
+  let dataset;
   try {
-    const dataset = await loadDataset();
-    await renderDemoPlan(dataset, resultsEl);
+    dataset = await loadDataset();
   } catch (err) {
-    resultsEl.textContent = `Failed to load dataset: ${err?.message ?? String(err)}`;
     console.error(err);
+    renderLoadError(resultsEl, err, () => boot());
+    return;
   }
+
+  const { readRequest, onChange } = buildInputs(dataset, sidebarEl);
+
+  function recompute() {
+    const req = readRequest();
+    if (req.mode === 'targets') {
+      if (!req.targets || Object.keys(req.targets).length === 0) {
+        renderMessage(resultsEl, 'Add at least one target rate to compute a build.');
+        return;
+      }
+    } else if (!req.targetItemId) {
+      renderMessage(resultsEl, 'Select a target part to compute a build.');
+      return;
+    }
+    try {
+      renderResults(resultsEl, computePlan(dataset, req));
+    } catch (err) {
+      console.error(err);
+      renderMessage(resultsEl, `Failed to compute plan: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  onChange(debounce(recompute, 150));
+  document.getElementById('optimize-btn')?.addEventListener('click', recompute);
+
+  recompute();
 }
 
 boot();
