@@ -1,4 +1,4 @@
-import { buildMaxModel, buildMinRawModel, buildTargetRatesModel } from './lp-builder.js';
+import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel } from './lp-builder.js';
 import { solveModel } from './solver.js';
 
 function ratesFrom(values, enabledRecipeIds) {
@@ -38,6 +38,24 @@ export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWas
   const r2 = solveModel(buildMinRawModel(args, maxRate));
   const chosen = r2.feasible ? r2 : r1;
   return { feasible: true, maxRate, recipeRates: ratesFrom(chosen.values, enabledRecipeIds) };
+}
+
+/**
+ * Maximize balanced "sets" of one or more targets: max N with
+ * flow(t) >= weight*N for each target. Two-pass (max sets, then min raw). A
+ * single target with weight 1 reduces to maximizing that one part.
+ * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[], noWaste?:boolean}} params
+ */
+export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false }) {
+  const args = { dataset, caps, enabledRecipeIds, targets, noWaste };
+  const r1 = solveModel(buildMaxSetsModel(args));
+  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [] };
+  const sets = r1.objective;
+  const r2 = solveModel(buildMinRawForSetsModel(args, sets));
+  const chosen = r2.feasible ? r2 : r1;
+  const recipeRates = ratesFrom(chosen.values, enabledRecipeIds);
+  const perPart = targets.map((t) => ({ itemId: t.itemId, weight: t.weight, rate: (t.weight > 0 ? t.weight : 1) * sets }));
+  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates) };
 }
 
 /** Hit target rates with minimum raw usage; slack variables report shortfalls. */

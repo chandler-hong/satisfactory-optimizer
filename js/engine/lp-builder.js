@@ -74,3 +74,38 @@ export function buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets
   }
   return { optimize: RAWCOST, opType: 'min', constraints, variables };
 }
+
+export const SETS = '_sets_';
+
+/**
+ * Maximize balanced "sets": max N such that flow(itemId) >= weight*N for every
+ * target. A single synthetic variable `__sets__` (= N) is the sole objective and
+ * contributes -weight to each target item's balance constraint.
+ * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[], noWaste?:boolean}} args
+ */
+export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false }) {
+  const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);
+  const nVar = { [SETS]: 1, [RAWCOST]: 0 };
+  for (const t of targets) {
+    const w = t.weight > 0 ? t.weight : 1;
+    nVar[t.itemId] = (nVar[t.itemId] || 0) - w;    // flow(t) - w*N >= 0
+    touchedNonRaw.add(t.itemId);                   // ensure the target has a balance constraint
+  }
+  variables.__sets__ = nVar;
+  for (const id of Object.keys(variables)) {
+    if (id !== '__sets__') variables[id][SETS] = 0;
+  }
+  const constraints = rawConstraints(touchedRaw, caps);
+  for (const i of touchedNonRaw) {
+    constraints[i] = noWaste ? { equal: 0 } : { min: 0 };
+  }
+  return { optimize: SETS, opType: 'max', constraints, variables };
+}
+
+export function buildMinRawForSetsModel(args, minSets) {
+  const model = buildMaxSetsModel(args);
+  model.constraints[SETS] = { min: minSets - Math.abs(minSets) * 1e-9 - 1e-9 };
+  model.optimize = RAWCOST;
+  model.opType = 'min';
+  return model;
+}
