@@ -192,6 +192,12 @@ table {
   min-height: 200px;
 }
 
+/* Even vertical rhythm between result sections (Resources / Build / Belts /
+   Factory diagram / Refinement options). */
+.results > section {
+  margin-top: 1.5rem;
+}
+
 /* ==========================================================================
    Stat tiles (.tiles / .tile)
    ========================================================================== */

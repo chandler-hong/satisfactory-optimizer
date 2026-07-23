@@ -148,7 +148,7 @@ export function renderDiagram(container, graph) {
       const rowY = MARGIN + off + i * ROW_H;
       const cy = rowY + BOX_H / 2;
       if (dummyTier.has(id)) {
-        pos.set(id, { dummy: true, cx: colX[t] + colWidth[t] / 2, cy });
+        pos.set(id, { dummy: true, left: colX[t], right: colX[t] + colWidth[t], cy });
       } else {
         pos.set(id, { dummy: false, x: colX[t], y: rowY, w: colWidth[t], left: colX[t], right: colX[t] + colWidth[t], cy });
       }
@@ -163,26 +163,146 @@ export function renderDiagram(container, graph) {
   defs.appendChild(marker);
   root.appendChild(defs);
 
-  // Edges first (under the boxes). Collect a label anchor per edge on its first
-  // segment (near the source), so a producer's split across multiple consumers
-  // is visible — the labels fan out with the edges.
-  const edgeLabels = [];
+  // Edges first (under the boxes). Orthogonal routing: horizontal runs along
+  // clear lanes, vertical risers only in the gaps between columns, with rounded
+  // right-angle corners. Every riser gets its own track x within its gap, so no
+  // two edges ever share a line. The label anchor is on the final horizontal run
+  // into the consumer, so a producer's split reads per-consumer.
+  const CORNER = 9;
+  // Give every edge its own attachment point (port) on the source's right edge
+  // and the target's left edge, so multiple edges into/out of one box are
+  // separate parallel arrows that never merge. Ports spread along the box edge,
+  // ordered by the other end's height to reduce crossings.
+  const outMap = new Map();
+  const inMap = new Map();
   for (const chain of chains) {
-    const pts = chain.ids.map((id, i) => {
-      const p = pos.get(id);
-      if (p.dummy) return [p.cx, p.cy];
-      if (i === 0) return [p.right, p.cy];
-      return [p.left, p.cy];
-    });
+    const s = chain.ids[0];
+    const t = chain.ids[chain.ids.length - 1];
+    if (!outMap.has(s)) outMap.set(s, []);
+    outMap.get(s).push(chain);
+    if (!inMap.has(t)) inMap.set(t, []);
+    inMap.get(t).push(chain);
+  }
+  const cyOf = (id) => pos.get(id)?.cy ?? 0;
+  const srcPortY = new Map();
+  const tgtPortY = new Map();
+  for (const [sid, chs] of outMap) {
+    const sp = pos.get(sid);
+    if (!sp || sp.dummy) continue;
+    [...chs].sort((a, b) => cyOf(a.ids[a.ids.length - 1]) - cyOf(b.ids[b.ids.length - 1]))
+      .forEach((ch, k) => srcPortY.set(ch, sp.y + (BOX_H * (k + 1)) / (chs.length + 1)));
+  }
+  for (const [tid, chs] of inMap) {
+    const tp = pos.get(tid);
+    if (!tp || tp.dummy) continue;
+    [...chs].sort((a, b) => cyOf(a.ids[0]) - cyOf(b.ids[0]))
+      .forEach((ch, k) => tgtPortY.set(ch, tp.y + (BOX_H * (k + 1)) / (chs.length + 1)));
+  }
+  // Box occupancy per column (real nodes only), for routing clearance checks.
+  const colBoxes = layers.map(() => []);
+  for (const n of graph.nodes) {
+    const p = pos.get(n.id);
+    colBoxes[n.tier].push([p.y, p.y + BOX_H]);
+  }
+  const clearAt = (y, cols) => cols.every((c) => colBoxes[c].every(([a, b]) => y < a - 4 || y > b + 4));
+
+  // Route each edge: keep it flat at the source's exit height for as long as no
+  // box blocks it, then a SINGLE riser to the target's entry height, placed in
+  // the latest gap where both flat runs clear every box. This avoids the little
+  // jogs you get from threading a line through per-row waypoints. Only when
+  // neither height stays clear does it fall back to a clear mid-lane (two
+  // risers). Each riser then gets its own track x within its gap, so no two
+  // edges ever share a line.
+  const gapRisers = new Map(); // gap-left-x -> [riser seg]
+  const addRiser = (gapK, y0, y1) => {
+    const seg = { x0: colX[gapK] + colWidth[gapK], x1: colX[gapK + 1], y0, y1 };
+    if (!gapRisers.has(seg.x0)) gapRisers.set(seg.x0, []);
+    gapRisers.get(seg.x0).push(seg);
+    return seg;
+  };
+  const clearLaneCandidates = (cols) => {
+    const ys = [];
+    for (const c of cols) for (const [a, b] of colBoxes[c]) ys.push(a - 10, b + 10);
+    return ys;
+  };
+  const routes = [];
+  for (const chain of chains) {
+    const s = pos.get(chain.ids[0]);
+    const t = pos.get(chain.ids[chain.ids.length - 1]);
+    const cs = tierOf(chain.ids[0]);
+    const ct = tierOf(chain.ids[chain.ids.length - 1]);
+    const sy = srcPortY.get(chain) ?? s.cy;
+    const ty = tgtPortY.get(chain) ?? t.cy;
+    const sx = s.right;
+    const tlx = t.left;
+    const inter = [];
+    for (let c = cs + 1; c <= ct - 1; c++) inter.push(c);
+
+    // Latest gap k where sy clears cols (cs+1..k) and ty clears cols (k+1..ct-1).
+    let k = -1;
+    for (let cand = ct - 1; cand >= cs; cand--) {
+      if (clearAt(sy, inter.filter((c) => c <= cand)) && clearAt(ty, inter.filter((c) => c > cand))) {
+        k = cand;
+        break;
+      }
+    }
+    const route = { edge: chain.edge };
+    if (k >= 0 && Math.abs(ty - sy) < 0.5) {
+      route.pts = [[sx, sy], [tlx, ty]];
+    } else if (k >= 0) {
+      const seg = addRiser(k, sy, ty);
+      route.build = () => [[sx, sy], [seg.tx, sy], [seg.tx, ty], [tlx, ty]];
+    } else {
+      const mid = (sy + ty) / 2;
+      let L = mid;
+      let bestD = Infinity;
+      for (const cand of [sy, ty, ...clearLaneCandidates(inter)]) {
+        if (clearAt(cand, inter) && Math.abs(cand - mid) < bestD) {
+          bestD = Math.abs(cand - mid);
+          L = cand;
+        }
+      }
+      const s1 = addRiser(cs, sy, L);
+      const s2 = addRiser(ct - 1, L, ty);
+      route.build = () => [[sx, sy], [s1.tx, sy], [s1.tx, L], [s2.tx, L], [s2.tx, ty], [tlx, ty]];
+    }
+    routes.push(route);
+  }
+
+  // Give each gap's risers their own track x, ordered by mid-height.
+  for (const segs of gapRisers.values()) {
+    const gapW = segs[0].x1 - segs[0].x0;
+    segs.sort((p, q) => (p.y0 + p.y1) - (q.y0 + q.y1));
+    segs.forEach((seg, i) => { seg.tx = seg.x0 + (gapW * (i + 1)) / (segs.length + 1); });
+  }
+
+  // Draw an axis-aligned polyline with rounded right-angle corners.
+  const polyPath = (pts) => {
     let d = `M ${pts[0][0]} ${pts[0][1]}`;
-    for (let i = 1; i < pts.length; i++) {
+    for (let i = 1; i < pts.length - 1; i++) {
       const [x0, y0] = pts[i - 1];
       const [x1, y1] = pts[i];
-      const mx = (x0 + x1) / 2;
-      d += ` C ${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}`;
+      const [x2, y2] = pts[i + 1];
+      const inX = Math.sign(x1 - x0);
+      const inY = Math.sign(y1 - y0);
+      const outX = Math.sign(x2 - x1);
+      const outY = Math.sign(y2 - y1);
+      const r = Math.min(CORNER, Math.hypot(x1 - x0, y1 - y0) / 2, Math.hypot(x2 - x1, y2 - y1) / 2);
+      d += ` L ${x1 - inX * r} ${y1 - inY * r} Q ${x1} ${y1}, ${x1 + outX * r} ${y1 + outY * r}`;
     }
-    root.appendChild(svg('path', { d, class: 'diagram-edge', 'marker-end': 'url(#diag-arrow)' }));
-    edgeLabels.push({ x: pts[0][0] + (pts[1][0] - pts[0][0]) * 0.55, y: pts[0][1] + (pts[1][1] - pts[0][1]) * 0.55, edge: chain.edge });
+    const last = pts[pts.length - 1];
+    d += ` L ${last[0]} ${last[1]}`;
+    return d;
+  };
+
+  const edgeLabels = [];
+  for (const route of routes) {
+    const pts = route.pts ?? route.build();
+    root.appendChild(svg('path', { d: polyPath(pts), class: 'diagram-edge', 'marker-end': 'url(#diag-arrow)' }));
+    // Label on the final horizontal run into the consumer (sits in the gap).
+    const last = pts[pts.length - 1];
+    const prev = pts[pts.length - 2];
+    edgeLabels.push({ x: (prev[0] + last[0]) / 2, y: last[1], edge: route.edge });
   }
 
   // Nodes.
