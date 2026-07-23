@@ -48,6 +48,12 @@
   box-sizing: border-box;
 }
 
+/* The hidden attribute must win over layout display rules (e.g. .app grid),
+   so switching views actually replaces the other one. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -848,9 +854,14 @@ input[type="range"]:focus-visible {
 }
 
 .power-view {
-  max-width: 720px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 1rem 1.5rem 2rem;
+}
+
+/* The view fills the page, but keep the form controls at a readable width. */
+.power-view .power-field {
+  max-width: 32rem;
 }
 
 .power-panel {
