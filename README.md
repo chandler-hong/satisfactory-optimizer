@@ -14,6 +14,10 @@ needs — each marked ✓ added or ✗ missing — and flags impossible resource
 (e.g. Crude Oil → Modular Frame) with a clear "recheck your resources or target" error
 instead of a silent empty plan.
 
+**Alternate suggestions:** with alternate recipes off, the planner points out the specific
+disabled alternates that would improve *this* build — more output, fewer machines, or
+meeting a target you're short on — each with a one-click **Enable**.
+
 ## Run the app
 
 ES modules + `fetch` need HTTP (not `file://`), so serve the folder:
