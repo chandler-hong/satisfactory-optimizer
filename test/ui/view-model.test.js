@@ -234,3 +234,46 @@ test('computePlan sums machines by building type', () => {
   assert.equal(byName['Constructor'], 2, '60 A / 30 = 2 Constructors');
   assert.equal(view.machineTotals.reduce((s, t) => s + t.machines, 0), view.tiles.machines, 'per-type totals sum to the grand total');
 });
+
+import { normalize } from '../../js/data/normalize.js';
+import { miniRaw } from '../fixtures/mini-data.js';
+
+const mini = normalize(miniRaw);
+const MINI_ALL = new Set(mini.recipes.map((r) => r.id));
+
+test('computePlan: impossible target (oil only -> iron ingot) hides plan, red headline', () => {
+  const view = computePlan(mini, {
+    mode: 'max', caps: new Map([['Desc_LiquidOil_C', 30]]), enabledRecipeIds: MINI_ALL,
+    targets: [{ itemId: 'Desc_IronIngot_C', weight: 1 }],
+  });
+  assert.equal(view.hasProduction, false);
+  assert.equal(view.feasible, false);
+  assert.equal(view.requirements.hasIssues, true);
+  assert.equal(view.requirements.impossible.length, 1);
+  const t = view.requirements.impossible[0];
+  assert.equal(t.itemId, 'Desc_IronIngot_C');
+  assert.equal(t.reason, 'wrong-resources');
+  assert.deepEqual(t.deps.map((d) => [d.itemId, d.added]), [['Desc_OreIron_C', false]]);
+  assert.equal(t.deps[0].name, 'Iron Ore');
+});
+
+test('computePlan: missing target (nothing added) reports deps, no impossible', () => {
+  const view = computePlan(mini, {
+    mode: 'max', caps: new Map(), enabledRecipeIds: MINI_ALL,
+    targets: [{ itemId: 'Desc_IronIngot_C', weight: 1 }],
+  });
+  assert.equal(view.hasProduction, false);
+  assert.equal(view.requirements.impossible.length, 0);
+  assert.equal(view.requirements.missing.length, 1);
+  assert.equal(view.requirements.missing[0].reason, 'no-resources');
+});
+
+test('computePlan: buildable case has no requirements issues (no regression)', () => {
+  const view = computePlan(ironChain, {
+    mode: 'max', caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES,
+    targetItemId: 'mf', shardBudget: 0, beltTier: 'Mk2',
+  });
+  assert.equal(view.hasProduction, true);
+  assert.equal(view.requirements.hasIssues, false);
+  assert.match(view.headline, /15\b/); // unchanged
+});

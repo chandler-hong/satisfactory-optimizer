@@ -1,6 +1,7 @@
 import { maxSets, hitTargets } from '../engine/optimize.js';
 import { realize } from '../engine/physical-layer.js';
 import { beltReport } from '../engine/belt-layer.js';
+import { analyzeRequirements } from '../engine/requirements.js';
 
 export const fmt1 = (x) => Math.round(x * 10) / 10;
 export const fmt2 = (x) => Math.round(x * 100) / 100;
@@ -272,9 +273,37 @@ export function computePlan(dataset, req) {
 
   const graph = buildGraph(dataset, recipeRates, machinesById, mode === 'targets' ? Object.keys(req.targets || {}) : perPart.map((p) => p.itemId));
 
+  // --- Requirements / feasibility diagnostics (independent of the LP) -------
+  const targetItemIds = mode === 'targets'
+    ? Object.keys(req.targets || {})
+    : perPart.map((p) => p.itemId);
+  const availableRawIds = new Set();
+  const userAddedRawIds = new Set();
+  for (const [id, cap] of caps) {
+    if (cap > 0) availableRawIds.add(id);
+    if (Number.isFinite(cap) && cap > 0) userAddedRawIds.add(id); // excludes auto-unlimited water
+  }
+  const analysis = analyzeRequirements(dataset, enabledRecipeIds, availableRawIds, userAddedRawIds, targetItemIds);
+  const shapeDep = (d) => ({ itemId: d.itemId, name: nameOf(dataset, d.itemId), slug: slugOf(dataset, d.itemId), added: d.added, fluid: fluidOf(dataset, d.itemId) });
+  const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep) });
+  const requirements = {
+    hasIssues: analysis.anyImpossible || analysis.anyMissing,
+    impossible: analysis.perTarget.filter((t) => t.status === 'impossible').map(shapeTarget),
+    missing: analysis.perTarget.filter((t) => t.status === 'missing').map(shapeTarget),
+  };
+  const hasProduction = recipeRates.size > 0;
+  if (requirements.impossible.length > 0) {
+    feasible = false;
+    headline = 'Can’t build from these resources';
+  } else if (!hasProduction && requirements.missing.length > 0) {
+    headline = 'Add the required resources';
+  }
+
   return {
     feasible,
     headline,
+    hasProduction,
+    requirements,
     shortfalls,
     perPart,
     tiles: { machines: phys.totalMachines, powerMW: fmt1(phys.totalPowerMW), shards: phys.totalShardsUsed },
