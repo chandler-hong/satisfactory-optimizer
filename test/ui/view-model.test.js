@@ -303,3 +303,35 @@ test('computePlan (target-rates): a "missing" target keeps a non-critical headli
   assert.equal(view.feasible, true);                      // recoverable -> not red
   assert.match(view.headline, /required resources/);
 });
+
+test('computePlan attaches alternate-recipe suggestions', () => {
+  const altDs = {
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore', liquid: false }],
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b', basePowerMW: 4, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['ore']),
+    recipes: [
+      { id: 'ingotBase', name: 'Ingot', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 60 }], outputs: [{ itemId: 'ingot', perMin: 60 }] },
+      { id: 'ingotAlt', name: 'Pure Ingot', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ore', perMin: 60 }], outputs: [{ itemId: 'ingot', perMin: 120 }] },
+    ],
+  };
+  const view = computePlan(altDs, {
+    mode: 'max', caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['ingotBase']),
+    targets: [{ itemId: 'ingot', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  assert.equal(view.suggestions.length, 1);
+  assert.equal(view.suggestions[0].recipeId, 'ingotAlt');
+  assert.equal(view.suggestions[0].recipeName, 'Pure Ingot');
+  assert.equal(view.suggestions[0].outputSlug, 'ingot');
+  assert.equal(view.suggestions[0].benefit.kind, 'output');
+});
+
+test('computePlan: no suggestions when the dataset has no disabled alternates', () => {
+  const view = computePlan(ironChain, {
+    mode: 'max', caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES,
+    targetItemId: 'mf', shardBudget: 0, beltTier: 'Mk2',
+  });
+  assert.deepEqual(view.suggestions, []);
+});

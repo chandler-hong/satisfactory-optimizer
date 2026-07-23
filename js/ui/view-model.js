@@ -2,6 +2,7 @@ import { maxSets, hitTargets } from '../engine/optimize.js';
 import { realize } from '../engine/physical-layer.js';
 import { beltReport } from '../engine/belt-layer.js';
 import { analyzeRequirements } from '../engine/requirements.js';
+import { suggestAlternates } from '../engine/suggestions.js';
 
 export const fmt1 = (x) => Math.round(x * 10) / 10;
 export const fmt2 = (x) => Math.round(x * 100) / 100;
@@ -305,11 +306,25 @@ export function computePlan(dataset, req) {
     headline = 'Add the required resources';
   }
 
+  // --- Alternate-recipe improvement suggestions (independent of the LP) ----
+  const suggestTargets = mode === 'targets'
+    ? (req.targets || {})
+    : (req.targets && req.targets.length ? req.targets : req.targetItemId ? [{ itemId: req.targetItemId, weight: 1 }] : []);
+  const suggestions = suggestAlternates({
+    dataset, caps, enabledRecipeIds, mode, targets: suggestTargets, noWaste, shardBudget,
+  }).suggestions.map((s) => ({
+    recipeId: s.recipeId,
+    recipeName: s.recipeName,
+    outputSlug: slugOf(dataset, s.outputItemId),
+    benefit: s.benefit,
+  }));
+
   return {
     feasible,
     headline,
     hasProduction,
     requirements,
+    suggestions,
     shortfalls,
     perPart,
     tiles: { machines: phys.totalMachines, powerMW: fmt1(phys.totalPowerMW), shards: phys.totalShardsUsed },
