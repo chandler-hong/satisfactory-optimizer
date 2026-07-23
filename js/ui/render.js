@@ -306,5 +306,7 @@ export function renderResults(rootEl, planView) {
   rootEl.appendChild(renderBuildTable(planView.buildRows));
   rootEl.appendChild(renderBeltList(planView.beltRows));
 
-  if (planView.graph) rootEl.appendChild(renderDiagramSection(planView.graph));
+  if (planView.graph && planView.graph.nodes.length > 0) {
+    rootEl.appendChild(renderDiagramSection(planView.graph));
+  }
 }

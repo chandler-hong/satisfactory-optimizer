@@ -316,6 +316,17 @@ verified via a headless screenshot. Deferred:
   to the resource's kind (miner / water extractor / oil extractor / resource well).
 - ~~**Icons before public launch**~~ — **DONE:** icons are vendored under `assets/icons/`
   (fetched via `scripts/fetch-icons.mjs`); no runtime hotlink.
+- ~~**Icons on the input controls**~~ — **DONE:** the searchable pickers show the selected
+  item's icon at rest (overlaid in the input) and in each dropdown option; every raw
+  resource in the picker (incl. fluids/gas) carries its icon.
+- ~~**Multi-part Maximize**~~ — **DONE:** Maximize accepts one or more target parts with
+  optional per-part weights and maximizes balanced "sets" (`engine/optimize.js` `maxSets`,
+  two-pass max-then-min-raw); the headline reads "N sets/min" with a per-part rate breakdown.
+- ~~**Drop the Optimize button**~~ — **DONE:** the build recomputes live (debounced) on every
+  input change; no explicit trigger.
+- ~~**Factory diagram**~~ — **DONE:** a tiered SVG flow diagram (`ui/diagram.js`) lays the
+  build's raw sources + recipe machines in columns by tier with building icons, machine
+  counts, and arrowed edges; theme-aware, horizontally scrollable for deep chains.
 - **Early/mid/endgame target catalog:** group the target picker by game phase (needs the
   schematics→tier data-layer extension deferred in Phase 4 planning).
 - **Accessibility:** the hand-rolled searchable combobox lacks ARIA roles + keyboard-arrow
