@@ -437,7 +437,9 @@ table {
   border-radius: 999px;
   font-size: 0.82rem;
 }
-.req-dep .icon { width: 1rem; height: 1rem; }
+/* Context size overrides cover the emoji stand-in too, so a failed image load
+   doesn't change the row's layout. */
+.req-dep :is(.icon, .icon-fallback) { width: 1rem; height: 1rem; }
 .req-dep--have { color: var(--ink-muted); }
 .req-dep--have .req-dep__mark { color: var(--good); }
 .req-dep--need { color: var(--ink); border-color: color-mix(in srgb, var(--critical) 45%, var(--border)); }
@@ -1067,7 +1069,7 @@ input[type="range"]:focus-visible {
   gap: 0.5rem;
   padding: 0.3rem 0;
 }
-.suggestion .icon { width: 1.1rem; height: 1.1rem; }
+.suggestion :is(.icon, .icon-fallback) { width: 1.1rem; height: 1.1rem; }
 .suggestion__name { color: var(--ink); }
 .suggestion__benefit { color: var(--ink-2); font-size: 0.82rem; }
 .suggestion__enable {
@@ -1127,6 +1129,13 @@ input[type="range"]:focus-visible {
   overflow-y: auto;
 }
 
+/* Stacked single-column layout: the list sits above the entry, so keep it short
+   enough that the entry is still reachable without a long scroll. Must follow
+   the rule above — same specificity, so source order decides. */
+@media (max-width: 800px) {
+  .codex-items { max-height: 40vh; }
+}
+
 .codex-item {
   display: flex;
   align-items: center;
@@ -1158,7 +1167,7 @@ input[type="range"]:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-.codex-item .icon { width: 1.35rem; height: 1.35rem; }
+.codex-item :is(.icon, .icon-fallback) { width: 1.35rem; height: 1.35rem; }
 
 .codex-detail__head {
   display: flex;
@@ -1167,7 +1176,9 @@ input[type="range"]:focus-visible {
   flex-wrap: wrap;
 }
 
-.codex-detail__head .icon { width: 2.5rem; height: 2.5rem; }
+.codex-detail__head :is(.icon, .icon-fallback) { width: 2.5rem; height: 2.5rem; }
+
+.codex-detail__head .icon-fallback { font-size: 1.6rem; }
 
 .codex-detail__name { margin: 0; }
 
@@ -1256,7 +1267,7 @@ button.codex-io:focus-visible {
   color: var(--ink);
 }
 
-.codex-io .icon { width: 1.1rem; height: 1.1rem; }
+.codex-io :is(.icon, .icon-fallback) { width: 1.1rem; height: 1.1rem; }
 
 .codex-recipe__foot {
   display: flex;
@@ -1267,6 +1278,6 @@ button.codex-io:focus-visible {
   font-size: 0.85rem;
 }
 
-.codex-recipe__foot .icon { width: 1.2rem; height: 1.2rem; }
+.codex-recipe__foot :is(.icon, .icon-fallback) { width: 1.2rem; height: 1.2rem; }
 
 .codex-empty { color: var(--ink-muted); }

@@ -1,4 +1,4 @@
-import { iconUrl } from './icons.js';
+import { iconEl as icon } from './icons.js';
 import { fmt1 } from './view-model.js';
 import { buildCodexModel } from '../domain/codex.js';
 
@@ -8,24 +8,6 @@ function el(tag, className) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   return node;
-}
-
-function fallbackIcon(kind) {
-  const span = el('span', 'icon-fallback');
-  span.textContent = kind === 'building' ? '⚙' : kind === 'fluid' ? '💧' : '📦';
-  return span;
-}
-
-/** `<img class="icon">` for a slug, degrading to an emoji when it can't load. */
-function icon(slug, kind) {
-  const url = iconUrl(slug);
-  if (!url) return fallbackIcon(kind);
-  const img = el('img', 'icon');
-  img.loading = 'lazy';
-  img.src = url;
-  img.alt = '';
-  img.onerror = () => img.replaceWith(fallbackIcon(kind));
-  return img;
 }
 
 const itemKind = (entry) => (entry.liquid ? 'fluid' : 'item');
@@ -219,10 +201,21 @@ export function buildCodex(dataset, container) {
   listPane.appendChild(noMatches);
 
   const rows = new Map();
+  let selectedId = null;
+
+  /**
+   * Bring the highlighted row into view inside the (scrollable) item list. A
+   * no-op while the view is hidden, since a `display: none` row has no layout —
+   * hence `revealOnShow` below.
+   */
+  function revealSelectedRow() {
+    rows.get(selectedId)?.scrollIntoView({ block: 'nearest' });
+  }
 
   function select(itemId, { scroll = false } = {}) {
     const item = byId.get(itemId);
     if (!item) return;
+    selectedId = itemId;
     for (const [id, row] of rows) {
       const active = id === itemId;
       row.classList.toggle('is-selected', active);
@@ -231,6 +224,7 @@ export function buildCodex(dataset, container) {
     }
     renderDetail(detailPane, item, (id) => select(id, { scroll: true }));
     saveSelection(itemId);
+    revealSelectedRow();
     if (scroll) detailPane.scrollIntoView({ block: 'start' });
   }
 
@@ -260,6 +254,12 @@ export function buildCodex(dataset, container) {
     noMatches.hidden = shown > 0;
   }
   search.addEventListener('input', filter);
+
+  // The Codex boots hidden (the app opens on the factory view), so a restored
+  // late-alphabet selection can't be scrolled to until the tab is first opened.
+  new MutationObserver(() => {
+    if (!container.hidden) revealSelectedRow();
+  }).observe(container, { attributes: true, attributeFilter: ['hidden'] });
 
   filter();
   select(restoreSelection(items));

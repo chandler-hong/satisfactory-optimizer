@@ -1,4 +1,4 @@
-import { iconUrl } from './icons.js';
+import { iconEl as icon } from './icons.js';
 import { capsFromInputs, WATER_EXTRACTOR_RATE } from '../engine/resource-model.js';
 
 const POWER_STATE_KEY = 'sat-optimizer:power:v1';
@@ -9,21 +9,6 @@ function el(tag, className) {
   const n = document.createElement(tag);
   if (className) n.className = className;
   return n;
-}
-
-function icon(slug, kind) {
-  const url = iconUrl(slug);
-  if (!url) {
-    const s = el('span', 'icon-fallback');
-    s.textContent = kind === 'building' ? '⚙' : kind === 'fluid' ? '💧' : '📦';
-    return s;
-  }
-  const img = el('img', 'icon');
-  img.loading = 'lazy';
-  img.src = url;
-  img.alt = '';
-  img.onerror = () => img.remove();
-  return img;
 }
 
 function num(value, width = '4rem') {

@@ -1,8 +1,6 @@
-import { iconUrl } from './icons.js';
+import { iconEl } from './icons.js';
 import { fmt1 } from './view-model.js';
 import { renderDiagram } from './diagram.js';
-
-const FALLBACK_EMOJI = { building: '⚙', fluid: '💧', item: '📦' };
 
 function el(tag, className) {
   const node = document.createElement(tag);
@@ -10,31 +8,15 @@ function el(tag, className) {
   return node;
 }
 
-function makeFallbackIcon(kind) {
-  const span = el('span', 'icon-fallback');
-  span.textContent = FALLBACK_EMOJI[kind] || FALLBACK_EMOJI.item;
-  return span;
-}
-
 /**
- * `<img class="icon">` for `slug`, falling back to a `.icon-fallback` emoji
- * (kind: 'building' | 'fluid' | 'item') when there is no icon URL or the
- * image fails to load. Never throws — a missing icon never breaks a row.
+ * Icon for `slug` with `name` as its alt text. Argument order differs from
+ * `iconEl`'s because every call site here has a name to describe the icon.
  * @param {string|undefined} slug
  * @param {string} name  used as the alt text (set as a property, not parsed as HTML)
  * @param {'building'|'fluid'|'item'} kind
  */
 function makeIcon(slug, name, kind) {
-  const url = iconUrl(slug);
-  if (!url) return makeFallbackIcon(kind);
-  const img = el('img', 'icon');
-  img.loading = 'lazy';
-  img.src = url;
-  img.alt = name || '';
-  img.onerror = () => {
-    img.replaceWith(makeFallbackIcon(kind));
-  };
-  return img;
+  return iconEl(slug, kind, name || '');
 }
 
 /**
