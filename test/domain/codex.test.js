@@ -118,3 +118,53 @@ test('building name falls back to the raw id when the building is unknown', () =
   assert.equal(r.buildingName, 'Desc_Missing_C');
   assert.equal(r.buildingSlug, undefined);
 });
+
+// Real cases: Encased Uranium Cell (Sulfuric Acid in and out) and two of the
+// water-recycling alternates.
+test('an item on both sides of one recipe is listed once in each direction', () => {
+  const ds = {
+    items: new Map([
+      ['acid', { id: 'acid', name: 'Sulfuric Acid', slug: 'acid', liquid: true }],
+      ['cell', { id: 'cell', name: 'Encased Uranium Cell', slug: 'cell', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'Blender', slug: 'blender' }]]),
+    rawResourceIds: new Set(),
+    recipeUnlocks: new Map(),
+    recipes: [{
+      id: 'r', name: 'Encased Uranium Cell', buildingId: 'b', alternate: false, timeSec: 12,
+      inputs: [{ itemId: 'acid', perMin: 40, amount: 8 }],
+      outputs: [
+        { itemId: 'cell', perMin: 25, amount: 5 },
+        { itemId: 'acid', perMin: 10, amount: 2 },
+      ],
+    }],
+  };
+  const acid = buildCodexModel(ds).byId.get('acid');
+  assert.equal(acid.madeIn.length, 1, 'listed once as a product');
+  assert.equal(acid.usedIn.length, 1, 'listed once as an ingredient');
+  assert.equal(acid.madeIn[0], acid.usedIn[0], 'the same recipe row in both lists');
+});
+
+test('unlock: a HUB tutorial reads as Onboarding; an unknown type keeps the schematic name', () => {
+  const recipe = (id) => ({
+    id, name: id, buildingId: 'b', alternate: false, timeSec: 2,
+    inputs: [], outputs: [{ itemId: 'a', perMin: 30, amount: 1 }],
+  });
+  const ds = {
+    items: new Map([['a', { id: 'a', name: 'Part', slug: 'a', liquid: false }]]),
+    buildings: new Map([['b', { id: 'b', name: 'Constructor', slug: 'constructor' }]]),
+    rawResourceIds: new Set(),
+    recipeUnlocks: new Map([
+      ['tutorial', [{ name: 'HUB Upgrade 3', type: 'EST_Tutorial', tier: 0 }]],
+      ['unknown', [{ name: 'Mystery Program', type: 'EST_Something_New', tier: 5 }]],
+    ]),
+    recipes: [recipe('tutorial'), recipe('unknown')],
+  };
+  const rows = buildCodexModel(ds).byId.get('a').madeIn;
+  const tutorial = rows.find((r) => r.id === 'tutorial');
+  assert.equal(tutorial.unlock.kind, 'tutorial');
+  assert.equal(tutorial.unlock.label, 'Onboarding · HUB Upgrade 3');
+  const unknown = rows.find((r) => r.id === 'unknown');
+  assert.equal(unknown.unlock.kind, 'other');
+  assert.equal(unknown.unlock.label, 'Mystery Program');
+});

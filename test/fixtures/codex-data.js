@@ -1,9 +1,11 @@
 // Raw dataset (greeny/SatisfactoryTools shape) for Codex tests. Covers what
 // mini-data.js deliberately doesn't: item metadata (description / stack / sink /
 // energy), per-craft amounts + craft time, schematic unlocks (milestone, MAM,
-// hard-drive alternate with and without a tier), a recipe unlocked by two
-// schematics, a byproduct, a fluid, a raw resource, an item with no machine
-// recipe, and one of the `special__` pseudo-items the Codex must exclude.
+// and hard-drive alternates at tier 4 and tier 0 — the latter labels without a
+// tier segment), the real "Alternate: " name prefix that normalize strips, a
+// recipe unlocked by two schematics, a byproduct, a fluid, a raw resource, an
+// item with no machine recipe, and one of the `special__` pseudo-items the
+// Codex must exclude.
 export const codexRaw = {
   items: {
     Desc_OreIron_C:         { className: 'Desc_OreIron_C',         name: 'Iron Ore',          slug: 'iron-ore',          liquid: false, description: 'The most essential basic resource.',   stackSize: 100,   sinkPoints: 1,     energyValue: 0 },
