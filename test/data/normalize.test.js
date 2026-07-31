@@ -98,3 +98,25 @@ test('recipeUnlocks is an empty Map when the dataset has no schematics', () => {
   assert.ok(ds.recipeUnlocks instanceof Map);
   assert.equal(ds.recipeUnlocks.size, 0);
 });
+
+test('strips the redundant "Alternate: " prefix from recipe names', () => {
+  const ds = normalize({
+    items: { A: { className: 'A', name: 'Part' } },
+    buildings: { B: { className: 'B', name: 'Builder', slug: 'builder', metadata: {} } },
+    resources: {},
+    recipes: {
+      R1: {
+        className: 'R1', name: 'Alternate: Cast Plate', alternate: true, inMachine: true, time: 4,
+        ingredients: [], products: [{ item: 'A', amount: 1 }], producedIn: ['B'],
+      },
+      R2: {
+        className: 'R2', name: 'Iron Plate', alternate: false, inMachine: true, time: 4,
+        ingredients: [], products: [{ item: 'A', amount: 1 }], producedIn: ['B'],
+      },
+    },
+  });
+  const alt = ds.recipes.find((r) => r.id === 'R1');
+  assert.equal(alt.name, 'Cast Plate');
+  assert.equal(alt.alternate, true, 'the alternate flag still carries the meaning');
+  assert.equal(ds.recipes.find((r) => r.id === 'R2').name, 'Iron Plate');
+});

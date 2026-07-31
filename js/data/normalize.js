@@ -65,7 +65,10 @@ export function normalize(raw) {
     if (!buildingId) continue;                           // no automated building
     recipes.push({
       id: r.className,
-      name: r.name,
+      // 109 of the 110 alternate recipes are named "Alternate: <recipe>", which
+      // just repeats the `alternate` flag every view already shows as its own
+      // marker. In-game the recipe is simply "<recipe>".
+      name: String(r.name ?? '').replace(/^Alternate:\s+/, ''),
       buildingId,
       alternate: !!r.alternate,
       timeSec: Number(r.time) || 0,

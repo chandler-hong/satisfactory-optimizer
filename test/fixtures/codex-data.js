@@ -45,7 +45,7 @@ export const codexRaw = {
       producedIn:  ['Desc_SmelterMk1_C'],
     },
     Recipe_Alternate_PureIngot_C: {
-      className: 'Recipe_Alternate_PureIngot_C', name: 'Pure Iron Ingot', slug: 'pure-iron-ingot',
+      className: 'Recipe_Alternate_PureIngot_C', name: 'Alternate: Pure Iron Ingot', slug: 'pure-iron-ingot',
       alternate: true, inMachine: true, time: 12,
       ingredients: [{ item: 'Desc_OreIron_C', amount: 7 }],
       products:    [{ item: 'Desc_IronIngot_C', amount: 13 }],
@@ -59,7 +59,7 @@ export const codexRaw = {
       producedIn:  ['Desc_ConstructorMk1_C'],
     },
     Recipe_Alternate_CastPlate_C: {
-      className: 'Recipe_Alternate_CastPlate_C', name: 'Cast Plate', slug: 'cast-plate',
+      className: 'Recipe_Alternate_CastPlate_C', name: 'Alternate: Cast Plate', slug: 'cast-plate',
       alternate: true, inMachine: true, time: 16,
       ingredients: [{ item: 'Desc_IronIngot_C', amount: 1 }],
       products:    [{ item: 'Desc_IronPlate_C', amount: 2 }],
