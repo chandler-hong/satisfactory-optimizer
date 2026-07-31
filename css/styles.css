@@ -1178,6 +1178,8 @@ input[type="range"]:focus-visible {
 
 .codex-detail__head :is(.icon, .icon-fallback) { width: 2.5rem; height: 2.5rem; }
 
+/* Only this box is far enough from the default 1rem emoji to need a bump; the
+   smaller icon contexts elsewhere look right at the base size. */
 .codex-detail__head .icon-fallback { font-size: 1.6rem; }
 
 .codex-detail__name { margin: 0; }

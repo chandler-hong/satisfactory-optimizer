@@ -120,3 +120,18 @@ test('strips the redundant "Alternate: " prefix from recipe names', () => {
   assert.equal(alt.alternate, true, 'the alternate flag still carries the meaning');
   assert.equal(ds.recipes.find((r) => r.id === 'R2').name, 'Iron Plate');
 });
+
+// The unlock sort compares these with localeCompare, so a malformed schematic
+// after a dataset bump must degrade rather than throw.
+test('coerces a malformed schematic name/type instead of passing it through', () => {
+  const ds = normalize({
+    items: {}, buildings: {}, recipes: {}, resources: {},
+    schematics: {
+      S1: { className: 'S1', name: null, type: 42, tier: '3', unlock: { recipes: ['R1'] } },
+    },
+  });
+  const [source] = ds.recipeUnlocks.get('R1');
+  assert.equal(source.name, '');
+  assert.equal(source.type, '');
+  assert.equal(source.tier, 0, 'a non-numeric tier falls back to 0');
+});
