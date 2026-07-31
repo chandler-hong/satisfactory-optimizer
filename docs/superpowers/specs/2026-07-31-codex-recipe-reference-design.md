@@ -271,10 +271,11 @@ tab itself is not persisted — unchanged from today, the app always boots to Fa
 - Append a `.codex*` block using existing tokens only (`--surface`, `--surface-2`,
   `--border`, `--ink`, `--ink-2`, `--ink-muted`, `--accent`), matching the panel
   look of `.sidebar` / `.results` / `.power-panel`.
-- Add `.codex-view` to the three existing shared control-styling selector groups
-  (`input[type="search"]` / hover / `:focus-visible`), which are currently scoped to
-  `.app` and `.power-view`. Without this the search field would be unstyled — this is
-  the one edit inside existing CSS rules; everything else is appended.
+- Add `.codex-view` to the four existing shared control-styling selector groups
+  (`input[type="search"]` base / `::placeholder` / hover / `:focus-visible`), which are
+  currently scoped to `.app` and `.power-view`. Without this the search field would be
+  unstyled — these are the only edits inside existing CSS rules; everything else is
+  appended.
 
 ## 8. Testing (TDD, `node --test`)
 
