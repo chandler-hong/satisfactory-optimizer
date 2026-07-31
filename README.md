@@ -18,6 +18,11 @@ instead of a silent empty plan.
 disabled alternates that would improve *this* build — more output, fewer machines, or
 meeting a target you're short on — each with a one-click **Enable**.
 
+**Codex:** a searchable reference for every item, like the one in-game — its description,
+stack size and sink points, every recipe that makes it and every recipe that uses it (with
+per-craft amounts, the building, and craft time), and how each recipe is unlocked (tier
+milestone, MAM research, or hard drive). Click any ingredient to jump to its own entry.
+
 ## Run the app
 
 ES modules + `fetch` need HTTP (not `file://`), so serve the folder:
