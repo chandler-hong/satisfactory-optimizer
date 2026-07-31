@@ -932,6 +932,7 @@ input[type="range"]:focus-visible {
 
 .viewtabs {
   display: flex;
+  flex-wrap: wrap;      /* three tabs would otherwise squeeze at phone widths */
   gap: 0.5rem;
   padding: 0.75rem 1.5rem 0;
   max-width: 1400px;
