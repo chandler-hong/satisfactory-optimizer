@@ -109,8 +109,10 @@ export function normalize(raw) {
     for (const recipeId of s.unlock?.recipes || []) {
       if (!recipeUnlocks.has(recipeId)) recipeUnlocks.set(recipeId, []);
       recipeUnlocks.get(recipeId).push({
-        name: s.name,
-        type: s.type,
+        // Coerced: these are sorted and compared downstream, so a malformed
+        // entry after a dataset bump should degrade, not throw.
+        name: typeof s.name === 'string' ? s.name : '',
+        type: typeof s.type === 'string' ? s.type : '',
         tier: typeof s.tier === 'number' ? s.tier : 0,
       });
     }
