@@ -15,6 +15,10 @@ export function normalize(raw) {
       slug: it.slug,
       liquid: !!it.liquid,
       energyValue: typeof it.energyValue === 'number' ? it.energyValue : 0, // MJ; used for power-generator fuel rates
+      // Reference metadata for the Codex view; unused by the optimizer.
+      description: typeof it.description === 'string' ? it.description : '',
+      stackSize: typeof it.stackSize === 'number' ? it.stackSize : 0,
+      sinkPoints: typeof it.sinkPoints === 'number' ? it.sinkPoints : 0,
     });
   }
 
@@ -45,6 +49,13 @@ export function normalize(raw) {
   // greeny/SatisfactoryTools stores all recipe amounts already in per-item
   // units (fluids in m³, not the raw x1000 game value), so no fluid scaling.
   const amountToPerMin = (entry, timeSec) => (entry.amount / timeSec) * 60;
+  // The per-craft `amount` and the recipe's craft time are what the Codex shows
+  // (the game states recipes per craft); the optimizer uses `perMin`.
+  const ioEntry = (entry, timeSec) => ({
+    itemId: entry.item,
+    perMin: amountToPerMin(entry, timeSec),
+    amount: Number(entry.amount) || 0,
+  });
 
   const recipes = [];
   for (const key of Object.keys(raw.recipes || {})) {
@@ -57,8 +68,9 @@ export function normalize(raw) {
       name: r.name,
       buildingId,
       alternate: !!r.alternate,
-      inputs: (r.ingredients || []).map((e) => ({ itemId: e.item, perMin: amountToPerMin(e, r.time) })),
-      outputs: (r.products || []).map((e) => ({ itemId: e.item, perMin: amountToPerMin(e, r.time) })),
+      timeSec: Number(r.time) || 0,
+      inputs: (r.ingredients || []).map((e) => ioEntry(e, r.time)),
+      outputs: (r.products || []).map((e) => ioEntry(e, r.time)),
     });
   }
 
@@ -84,5 +96,22 @@ export function normalize(raw) {
     };
   });
 
-  return { items, buildings, recipes, rawResourceIds, generators };
+  // Recipe → the schematics that unlock it (tier milestone, MAM research,
+  // hard-drive alternate, HUB tutorial). Kept as a list because a recipe can be
+  // granted by several; choosing which one to show is presentation (see
+  // js/domain/codex.js). Recipes with no entry simply aren't in the map.
+  const recipeUnlocks = new Map();
+  for (const key of Object.keys(raw.schematics || {})) {
+    const s = raw.schematics[key];
+    for (const recipeId of s.unlock?.recipes || []) {
+      if (!recipeUnlocks.has(recipeId)) recipeUnlocks.set(recipeId, []);
+      recipeUnlocks.get(recipeId).push({
+        name: s.name,
+        type: s.type,
+        tier: typeof s.tier === 'number' ? s.tier : 0,
+      });
+    }
+  }
+
+  return { items, buildings, recipes, rawResourceIds, generators, recipeUnlocks };
 }
