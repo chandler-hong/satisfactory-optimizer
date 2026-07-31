@@ -82,16 +82,32 @@ function renderMessage(rootEl, text) {
   rootEl.appendChild(p);
 }
 
-function renderLoadError(rootEl, err, onRetry) {
+function renderBootError(rootEl, text, onRetry) {
   rootEl.replaceChildren();
   const p = document.createElement('p');
-  p.textContent = `Failed to load dataset: ${err?.message ?? String(err)}`;
+  p.textContent = text;
   rootEl.appendChild(p);
   const retryBtn = document.createElement('button');
   retryBtn.type = 'button';
   retryBtn.textContent = 'Retry';
   retryBtn.addEventListener('click', onRetry);
   rootEl.appendChild(retryBtn);
+}
+
+/**
+ * Build one of the secondary views (power, codex) so that a failure in it
+ * cannot take the factory optimizer down with it — that view shows why it's
+ * empty and boot continues.
+ */
+function buildSecondaryView(dataset, viewId, label, build) {
+  const viewEl = document.getElementById(viewId);
+  if (!viewEl) return;
+  try {
+    build(dataset, viewEl);
+  } catch (err) {
+    console.error(err);
+    renderMessage(viewEl, `${label} couldn’t load: ${err?.message ?? String(err)}`);
+  }
 }
 
 /**
@@ -113,17 +129,14 @@ async function boot() {
     dataset = await loadDataset();
   } catch (err) {
     console.error(err);
-    renderLoadError(resultsEl, err, () => boot());
+    renderBootError(resultsEl, `Failed to load dataset: ${err?.message ?? String(err)}`, start);
     return;
   }
 
   const { readRequest, onChange, enableAlternate } = buildInputs(dataset, sidebarEl);
 
-  const powerEl = document.getElementById('view-power');
-  if (powerEl) buildPower(dataset, powerEl);
-
-  const codexEl = document.getElementById('view-codex');
-  if (codexEl) buildCodex(dataset, codexEl);
+  buildSecondaryView(dataset, 'view-power', 'Power generation', buildPower);
+  buildSecondaryView(dataset, 'view-codex', 'Codex', buildCodex);
 
   function recompute() {
     const req = readRequest();
@@ -149,4 +162,18 @@ async function boot() {
   recompute();
 }
 
-boot();
+/**
+ * Run `boot`, catching anything it didn't handle itself. Without this a throw
+ * during startup would leave the results pane stuck on "Loading…" next to a
+ * sidebar whose changes recompute nothing — a silent dead app rather than a
+ * visible error. Also the Retry handler, so a retry keeps the same net.
+ */
+function start() {
+  boot().catch((err) => {
+    console.error(err);
+    const resultsEl = document.getElementById('results');
+    if (resultsEl) renderBootError(resultsEl, `Couldn’t start the app: ${err?.message ?? String(err)}`, start);
+  });
+}
+
+start();
