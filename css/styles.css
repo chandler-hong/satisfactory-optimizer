@@ -1113,6 +1113,9 @@ input[type="range"]:focus-visible {
 
 .codex-list input[type="search"] { width: 100%; }
 
+/* Selecting an item scrolls its entry into view; keep it off the viewport edge. */
+.codex-detail { scroll-margin-top: 1rem; }
+
 .codex-list .hint { margin: 0.5rem 0 0.35rem; }
 
 .codex-items {

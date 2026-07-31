@@ -75,9 +75,12 @@ function recipeCard(recipe, currentItemId, onSelect) {
 
   const flow = el('div', 'codex-flow');
   for (const io of recipe.inputs) flow.appendChild(ioChip(io, currentItemId, onSelect));
-  const arrow = el('span', 'codex-arrow');
-  arrow.textContent = '→';
-  flow.appendChild(arrow);
+  // Excited Photonic Matter (Converter) has no ingredients — only power.
+  if (recipe.inputs.length > 0) {
+    const arrow = el('span', 'codex-arrow');
+    arrow.textContent = '→';
+    flow.appendChild(arrow);
+  }
   for (const io of recipe.outputs) flow.appendChild(ioChip(io, currentItemId, onSelect));
   card.appendChild(flow);
 
@@ -217,7 +220,7 @@ export function buildCodex(dataset, container) {
 
   const rows = new Map();
 
-  function select(itemId) {
+  function select(itemId, { scroll = false } = {}) {
     const item = byId.get(itemId);
     if (!item) return;
     for (const [id, row] of rows) {
@@ -226,8 +229,9 @@ export function buildCodex(dataset, container) {
       if (active) row.setAttribute('aria-current', 'true');
       else row.removeAttribute('aria-current');
     }
-    renderDetail(detailPane, item, select);
+    renderDetail(detailPane, item, (id) => select(id, { scroll: true }));
     saveSelection(itemId);
+    if (scroll) detailPane.scrollIntoView({ block: 'start' });
   }
 
   for (const item of items) {
@@ -237,7 +241,7 @@ export function buildCodex(dataset, container) {
     const label = el('span');
     label.textContent = item.name;
     row.appendChild(label);
-    row.addEventListener('click', () => select(item.id));
+    row.addEventListener('click', () => select(item.id, { scroll: true }));
     rows.set(item.id, row);
     listEl.appendChild(row);
   }
