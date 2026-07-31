@@ -3,6 +3,7 @@ import { computePlan } from './ui/view-model.js';
 import { renderResults } from './ui/render.js';
 import { buildInputs } from './ui/inputs.js';
 import { buildPower } from './ui/power.js';
+import { buildCodex } from './ui/codex.js';
 
 const THEME_KEY = 'theme';
 
@@ -44,18 +45,26 @@ restoreTheme();
 
 document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
 
-// View tabs: Factory optimizer vs the standalone Power generation calculator.
-function showView(view) {
-  const isPower = view === 'power';
-  const factory = document.getElementById('view-factory');
-  const power = document.getElementById('view-power');
-  if (factory) factory.hidden = isPower;
-  if (power) power.hidden = !isPower;
-  document.getElementById('tab-factory')?.classList.toggle('is-active', !isPower);
-  document.getElementById('tab-power')?.classList.toggle('is-active', isPower);
+// View tabs: the Factory optimizer, the standalone Power generation calculator,
+// and the Codex item/recipe reference.
+const VIEWS = {
+  factory: { viewId: 'view-factory', tabId: 'tab-factory' },
+  power: { viewId: 'view-power', tabId: 'tab-power' },
+  codex: { viewId: 'view-codex', tabId: 'tab-codex' },
+};
+
+function showView(active) {
+  for (const [name, ids] of Object.entries(VIEWS)) {
+    const isActive = name === active;
+    const viewEl = document.getElementById(ids.viewId);
+    if (viewEl) viewEl.hidden = !isActive;
+    document.getElementById(ids.tabId)?.classList.toggle('is-active', isActive);
+  }
 }
-document.getElementById('tab-factory')?.addEventListener('click', () => showView('factory'));
-document.getElementById('tab-power')?.addEventListener('click', () => showView('power'));
+
+for (const [name, ids] of Object.entries(VIEWS)) {
+  document.getElementById(ids.tabId)?.addEventListener('click', () => showView(name));
+}
 
 /** Debounce: delay invoking `fn` until `wait` ms after the last call. */
 function debounce(fn, wait) {
@@ -112,6 +121,9 @@ async function boot() {
 
   const powerEl = document.getElementById('view-power');
   if (powerEl) buildPower(dataset, powerEl);
+
+  const codexEl = document.getElementById('view-codex');
+  if (codexEl) buildCodex(dataset, codexEl);
 
   function recompute() {
     const req = readRequest();
