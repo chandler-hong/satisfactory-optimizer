@@ -77,9 +77,15 @@ test('evaluateGoals: uncovered rates convert the cost stock into a flow over fil
   assert.equal(v2.uncovered.find((u) => u.itemId === 'Desc_Cable_C').rate, 25);  // 500 / 20
 });
 
-test('evaluateGoals: a non-positive fillMinutes falls back to 10 rather than dividing by zero', () => {
-  const [v] = evaluateGoals(catalog(), ['Schematic_3-1_C'], new Map(), 0);
-  assert.equal(v.uncovered.find((u) => u.itemId === 'Desc_Cable_C').rate, 50);
+test('evaluateGoals: a non-positive or non-finite fillMinutes falls back to 10, but a numeric string is honored', () => {
+  const rateFor = (fillMinutes) => {
+    const [v] = evaluateGoals(catalog(), ['Schematic_3-1_C'], new Map(), fillMinutes);
+    return v.uncovered.find((u) => u.itemId === 'Desc_Cable_C').rate;
+  };
+  assert.equal(rateFor(0), 50, 'zero falls back to 10 rather than dividing by zero');
+  assert.equal(rateFor(Infinity), 50, 'Infinity falls back to 10 rather than amount/Infinity collapsing to 0');
+  assert.equal(rateFor('Infinity'), 50, 'the string "Infinity" coerces the same way as the number');
+  assert.equal(rateFor('20'), 25, 'a legitimate numeric string is honored, not coerced away by the Infinity guard');
 });
 
 test('evaluateGoals: an unknown selected id is skipped', () => {

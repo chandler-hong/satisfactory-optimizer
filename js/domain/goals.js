@@ -111,7 +111,8 @@ export function buildGoalCatalog(dataset) {
  */
 export function evaluateGoals(catalog, selectedIds, netOutput, fillMinutes) {
   const selected = new Set(selectedIds || []);
-  const minutes = Number(fillMinutes) > 0 ? Number(fillMinutes) : DEFAULT_FILL_MINUTES;
+  const parsedMinutes = Number(fillMinutes);
+  const minutes = Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : DEFAULT_FILL_MINUTES;
   const round2 = (x) => Math.round(x * 100) / 100;
 
   return catalog.filter((g) => selected.has(g.id)).map((g) => {
