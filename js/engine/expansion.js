@@ -13,6 +13,7 @@ import { netPerMin } from '../domain/model.js';
 import { hitTargets } from './optimize.js';
 import { realize } from './physical-layer.js';
 import { beltReport } from './belt-layer.js';
+import { analyzeRequirements } from './requirements.js';
 
 const EPS = 1e-6;
 const round6 = (x) => Math.round(x * 1e6) / 1e6;
@@ -59,11 +60,14 @@ export function pinnedBalance(dataset, blockRows) {
  * Sort the pinned balance and the user's rows into what the LP must solve for and
  * what it gets for free.
  *
- * Raw resources take a separate path in both directions. A block that eats ore
+ * Raw resources take a separate path in every direction. A block that eats ore
  * directly has no upstream to build, and handing it to the LP as a target would
  * let the ore constraint absorb it — it would then be missing from the raw footer
- * entirely. Likewise a raw HAVE row can't be an LP supply, because raw
- * constraints hold net *consumption*, so it is netted off in the footer instead.
+ * entirely. A block that instead nets a *surplus* of a raw can't be an LP supply
+ * either — lp-builder.js's addSupplies unconditionally skips raw supplies, since
+ * raw constraints hold net consumption — so it goes to `rawCredit` instead of
+ * `supplies`, where it would silently vanish. Likewise a raw HAVE row can't be an
+ * LP supply, so it is netted off in the footer instead.
  */
 export function splitDemand(dataset, netPinned, wantRows, haveRows) {
   const raw = dataset.rawResourceIds;
@@ -71,13 +75,15 @@ export function splitDemand(dataset, netPinned, wantRows, haveRows) {
   const supplies = [];
   const rawDemand = new Map();
   const rawSupplied = new Map();
+  const rawCredit = new Map();
 
   for (const [itemId, v] of netPinned) {
     if (v < -EPS) {
       if (raw.has(itemId)) add(rawDemand, itemId, -v);
       else add(targets, itemId, -v);
     } else if (v > EPS) {
-      supplies.push({ itemId, rate: v, kind: 'pinned' });
+      if (raw.has(itemId)) add(rawCredit, itemId, v);
+      else supplies.push({ itemId, rate: v, kind: 'pinned' });
     }
   }
   for (const w of wantRows || []) {
@@ -103,7 +109,7 @@ export function splitDemand(dataset, netPinned, wantRows, haveRows) {
     else add(haveTotals, h.itemId, rate);
   }
   for (const [itemId, rate] of haveTotals) supplies.push({ itemId, rate, kind: 'have' });
-  return { targets, supplies, rawDemand, rawSupplied };
+  return { targets, supplies, rawDemand, rawSupplied, rawCredit };
 }
 
 /**
@@ -163,7 +169,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   const haveRows = all.filter((r) => r?.kind === 'have');
 
   const netPinned = pinnedBalance(dataset, blockRows);
-  const { targets, supplies, rawDemand, rawSupplied } = splitDemand(dataset, netPinned, wantRows, haveRows);
+  const { targets, supplies, rawDemand, rawSupplied, rawCredit } = splitDemand(dataset, netPinned, wantRows, haveRows);
 
   // Raws are uncapped here by design — node budgeting is the Optimizer's job.
   // rawConstraints() clamps a non-finite cap to 1e9, which the LP never reaches.
@@ -254,14 +260,35 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
 
   const netOutput = computeNetOutput(dataset, netPinned, recipeRates, solved.supplyDrawn);
 
-  // Raw need = the upstream's own draw plus any block that eats ore directly.
+  // Raw need = the upstream's own draw plus any block that eats ore directly,
+  // minus any block that nets a raw *surplus* (rawCredit — see splitDemand).
+  // Floored at 0: a surplus that outweighs every other draw is not a negative
+  // need, it's just fully covered.
   const rawUsage = lpRawUsage(dataset, recipeRates);
   for (const [itemId, v] of rawDemand) add(rawUsage, itemId, v);
+  for (const [itemId, v] of rawCredit) add(rawUsage, itemId, -v);
+  for (const [itemId, v] of rawUsage) rawUsage.set(itemId, Math.max(0, v));
 
   const shortfalls = [...solved.shortfalls].map(([itemId, amount]) => ({
     itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId),
     amount: Math.round(amount * 100) / 100, fluid: fluidOf(dataset, itemId),
   }));
+
+  // "No recipe path" diagnostic only (see requirements.js: analyzeRequirements's
+  // `allFired` closure is always seeded from dataset.rawResourceIds internally).
+  // Passing that same set as both availableRawIds and userAddedRawIds makes
+  // availClosure identical to allFired's closure, which collapses the
+  // 'missing'/'partial'/'wrong-resources' branches to unreachable — correct here
+  // because Expansion Mode has no raw-scarcity concept; every raw is uncapped
+  // (see the `caps` construction above).
+  const analysis = analyzeRequirements(dataset, enabledRecipeIds, dataset.rawResourceIds, dataset.rawResourceIds, [...targets.keys()]);
+  const shapeDep = (d) => ({ itemId: d.itemId, name: nameOf(dataset, d.itemId), slug: slugOf(dataset, d.itemId), added: d.added, fluid: fluidOf(dataset, d.itemId) });
+  const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep) });
+  const requirements = {
+    hasIssues: analysis.anyImpossible || analysis.anyMissing,
+    impossible: analysis.perTarget.filter((t) => t.status === 'impossible').map(shapeTarget),
+    missing: analysis.perTarget.filter((t) => t.status === 'missing').map(shapeTarget),
+  };
 
   return {
     feasible: solved.feasible,
@@ -282,6 +309,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     rawUsage,        // Map<itemId, ratePerMin>; Task 4 turns this into rawNeeded
     rawSupplied,     // Map<itemId, ratePerMin> from raw HAVE rows
     shortfalls,
+    requirements,
     beltRows: belts.map((f) => ({ itemId: f.itemId, name: nameOf(dataset, f.itemId), slug: slugOf(dataset, f.itemId), rate: f.rate, lines: f.lines, tier: f.tier, fluid: f.fluid, saturated: f.saturated })),
   };
 }

@@ -11,6 +11,19 @@ const plan = (rows, extra = {}) => planExpansion({
   dataset: ironChain, rows, enabledRecipeIds: ALL_IRON_RECIPES, ...extra,
 });
 
+// Important 3 fixture: a block that PRODUCES a raw needs a recipe with no
+// inputs. iron-chain.js has none and must not be touched (other tests depend
+// on its exact shape), so this is a throwaway dataset built in this file only,
+// reusing ironChain's items/buildings/rawResourceIds by reference and adding
+// one synthetic recipe on top of a *copy* of its recipe list.
+const oreMakerDataset = {
+  ...ironChain,
+  recipes: [...ironChain.recipes, { id: 'oreMaker', name: 'oreMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [{ itemId: 'ore', perMin: 5 }] }],
+};
+const planOre = (rows) => planExpansion({
+  dataset: oreMakerDataset, rows, enabledRecipeIds: new Set([...ALL_IRON_RECIPES, 'oreMaker']),
+});
+
 test('pinnedBalance: nets a block at its machine count', () => {
   // rip: 30 plate + 60 screw -> 5 rip, per machine
   const net = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
@@ -51,6 +64,16 @@ test('splitDemand: a block consuming a raw goes to rawDemand, not to the LP', ()
   assert.equal(targets.size, 0);
   assert.equal(rateOf(rawDemand, 'ore'), 30);
   assert.deepEqual(supplies, [{ itemId: 'ingot', rate: 30, kind: 'pinned' }]);
+});
+
+// Important 3: before the fix, a positive-raw netPinned entry was pushed into
+// `supplies` as a raw 'pinned' row — but lp-builder.js's addSupplies
+// unconditionally skips every raw supply, so that entry was permanently dead
+// and the credit vanished. It must go to `rawCredit` instead.
+test('splitDemand: a block netting a raw surplus becomes rawCredit, not a dead pinned supply', () => {
+  const { supplies, rawCredit } = splitDemand(ironChain, new Map([['ore', 20]]), [], []);
+  assert.equal(supplies.length, 0, 'a raw cannot be an LP supply, so it must not be offered as one');
+  assert.equal(rateOf(rawCredit, 'ore'), 20);
 });
 
 test('splitDemand: want rows add targets; a raw want becomes raw demand', () => {
@@ -119,6 +142,40 @@ test('planExpansion: a block partly feeding another covers only the deficit', ()
   ]);
   assert.equal(machinesOf(p, 'plate'), 1, 'one more plate machine covers the missing 20/min');
   assert.equal(p.tiles.machines, 10);
+});
+
+// Important 1: the raw footer combines a block's own direct raw draw with
+// whatever the LP separately needs for its own targets. Before this test,
+// nothing exercised rawUsage with both sources active at once.
+test('planExpansion: rawUsage combines a direct block draw with a separate LP residual draw', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'ingot', machines: 1, clock: 1 },  // 30 ore/min, direct
+    { kind: 'want', itemId: 'plate', rate: 40 },                   // needs 60 ingot/min total
+  ]);
+  // The block's 30 ingot/min covers half of the want; the LP builds its own
+  // ingot machine for the other 30 ingot/min (1 machine, not a duplicate of
+  // the block's own machine, which is pinned and never enters buildRows).
+  assert.equal(rateOf(p.rawUsage, 'ore'), 60, '30 from the block plus 30 from the LP residual');
+  assert.equal(machinesOf(p, 'ingot'), 1, 'only the LP residual ingot machine, not the pinned block');
+});
+
+// Important 3: a block netting a raw surplus must reduce rawUsage instead of
+// vanishing. Before the fix, the +50 credit was pushed into a dead 'pinned'
+// supply entry and rawUsage stayed at the full 80.
+test('planExpansion: a block netting a raw surplus credits rawUsage instead of vanishing', () => {
+  const p = planOre([
+    { kind: 'block', recipeId: 'oreMaker', machines: 10, clock: 1 },  // +50 ore/min
+    { kind: 'want', itemId: 'ore', rate: 80 },
+  ]);
+  assert.equal(rateOf(p.rawUsage, 'ore'), 30, '80 wanted minus the 50 the block already makes');
+});
+
+test('planExpansion: rawUsage never goes negative when a raw credit exceeds demand', () => {
+  const p = planOre([
+    { kind: 'block', recipeId: 'oreMaker', machines: 20, clock: 1 },  // +100 ore/min
+    { kind: 'want', itemId: 'ore', rate: 30 },
+  ]);
+  assert.equal(rateOf(p.rawUsage, 'ore'), 0, 'a surplus bigger than demand is not a negative need');
 });
 
 test('planExpansion: a have row covering demand removes that whole subtree', () => {
@@ -196,6 +253,25 @@ test('computeNetOutput: a block surplus counts toward a larger want rather than 
   assert.equal(rateOf(p.netOutput, 'screw'), 200, 'not 120 — the 80 surplus is part of the 200');
 });
 
+// Important 2: computeNetOutput's `drawn['have']` term only becomes visible in
+// the public netOutput map when the target is NOT already satisfied purely by
+// the same item's own pinned surplus. In every have-row test above, the
+// have-item's target is exactly that item's own netPinned deficit satisfied
+// with no slack, so netOutput[item] collapses to netPinned[item] + target[item]
+// = 0 whether or not the have-credit term fires — and the `r > EPS` filter
+// reports both 0 and a negative value identically as absent. Deleting the term
+// and rerunning confirms none of those tests notice. This scenario breaks the
+// cancellation by layering an independent `want` on top of the block's own
+// surplus, so the have-credit's contribution is the only way to reach 100.
+test('computeNetOutput: the have-credit term is visible when a want exceeds the surplus it sits on top of', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },  // +80 screw surplus
+    { kind: 'want', itemId: 'screw', rate: 100 },                   // 20 short of the want
+    { kind: 'have', itemId: 'screw', rate: 50 },                    // covers the 20 gap, with room to spare
+  ]);
+  assert.equal(rateOf(p.netOutput, 'screw'), 100, 'without the have-credit term this reads 80');
+});
+
 test('planExpansion: an unreachable target reports a shortfall instead of throwing', () => {
   // Only the ingot recipe is enabled, so plate can never be made.
   const p = planExpansion({
@@ -205,6 +281,26 @@ test('planExpansion: an unreachable target reports a shortfall instead of throwi
   });
   assert.equal(p.feasible, false);
   assert.deepEqual(p.shortfalls.map((s) => s.itemId), ['plate']);
+});
+
+// Confirmed gap: the spec's ExpansionPlan field table and step 5's "no recipe
+// path" diagnostic callout both call for a `requirements` field, reusing
+// analyzeRequirements the same way view-model.js's computePlan already does.
+// Same scenario as the shortfall test above: only 'ingot' is enabled, so
+// nothing can ever produce plate — a genuine no-recipe-path impossibility,
+// not a resource-scarcity one (Expansion Mode has no such concept).
+test('planExpansion: an unreachable target surfaces in requirements as an impossible, no-recipe target', () => {
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [{ kind: 'want', itemId: 'plate', rate: 20 }],
+    enabledRecipeIds: new Set(['ingot']),
+  });
+  assert.equal(p.requirements.hasIssues, true);
+  assert.deepEqual(
+    p.requirements.impossible.map((t) => ({ itemId: t.itemId, reason: t.reason })),
+    [{ itemId: 'plate', reason: 'no-recipe' }],
+  );
+  assert.deepEqual(p.requirements.missing, []);
 });
 
 test('planExpansion: no rows yields an empty, feasible plan', () => {
