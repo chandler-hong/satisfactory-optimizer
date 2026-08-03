@@ -318,10 +318,26 @@ test('rawNeeded: reports the rate and whole miners for a solid', () => {
   assert.equal(ore.needed, 120);
   assert.equal(ore.supplied, 0);
   assert.equal(ore.newRate, 120);
-  // Mk.1 normal = 60 -> 2; Mk.2 normal = 120 -> 1; Mk.3 pure = 480 -> 1
+  // Mk.1 normal = 60 -> 2; Mk.2 normal = 120 -> 1; Mk.1 pure = 120 -> 1
   assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · normal').count, 2);
   assert.equal(ore.options.find((o) => o.label === 'Miner Mk.2 · normal').count, 1);
   assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · pure').count, 1);
+});
+
+// Every rate above (120, 60, 240, 480) happens to divide its extractor rate
+// exactly, so Math.ceil and Math.floor agree and neither is actually pinned.
+// 150/min does not divide evenly by any miner tier: 150/60 = 2.5, which must
+// round UP to 3 whole miners (a fraction of a miner cannot be built), not down
+// to 2. This is the one assertion in the suite that discriminates ceil from
+// floor — confirmed by temporarily swapping extractorOptions's Math.ceil for
+// Math.floor and rerunning, which fails only this test (see task-4-report.md).
+test('rawNeeded: a rate that does not divide evenly still rounds up to a whole extractor', () => {
+  // 5x ingot -> 150 ore/min, direct block draw (no LP recipes involved).
+  const p = plan([{ kind: 'block', recipeId: 'ingot', machines: 5, clock: 1 }]);
+  const ore = rawFor(p, 'ore');
+  assert.equal(ore.needed, 150);
+  assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · normal').count, 3,
+    'ceil(150 / 60) = 3, not floor(150 / 60) = 2');
 });
 
 test('rawNeeded: a raw have row is netted off, not shown as supply usage', () => {
