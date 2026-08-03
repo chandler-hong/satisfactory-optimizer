@@ -71,6 +71,27 @@ test('splitDemand: have rows become have supply; a raw have becomes rawSupplied'
   assert.equal(rateOf(rawSupplied, 'ore'), 480);
 });
 
+// Two rows naming the same item is an ordinary thing to type ("300 from plant A,
+// 200 from plant B"). Unmerged, they'd collide downstream: lp-builder.js's
+// addSupplies keys the LP variable and its cap constraint on (itemId, kind), so
+// two 'have' entries for the same itemId silently overwrite each other's cap.
+test('splitDemand: two non-raw HAVE rows for the same item merge into one supply entry', () => {
+  const { supplies } = splitDemand(ironChain, new Map(), [], [
+    { kind: 'have', itemId: 'screw', rate: 50 },
+    { kind: 'have', itemId: 'screw', rate: 40 },
+  ]);
+  assert.deepEqual(supplies, [{ itemId: 'screw', rate: 90, kind: 'have' }],
+    'one pooled entry, not two competing ones');
+});
+
+test('splitDemand: two raw HAVE rows for the same item still sum into rawSupplied', () => {
+  const { rawSupplied } = splitDemand(ironChain, new Map(), [], [
+    { kind: 'have', itemId: 'ore', rate: 300 },
+    { kind: 'have', itemId: 'ore', rate: 180 },
+  ]);
+  assert.equal(rateOf(rawSupplied, 'ore'), 480, 'the branch we did not touch keeps aggregating');
+});
+
 test('planExpansion: one block explodes to whole upstream machines', () => {
   const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(p.feasible, true);
@@ -126,6 +147,27 @@ test('planExpansion: a have row larger than demand is not flagged', () => {
     { kind: 'have', itemId: 'screw', rate: 300 },
   ]);
   assert.deepEqual(p.supplyUsage, [{ itemId: 'screw', kind: 'have', rate: 300, used: 120, capped: false }]);
+});
+
+// The anchor: this is the assertion that would have caught the duplicate-HAVE-row
+// collision. Before the fix, splitting the same 120/min across two rows (60+60)
+// instead of one silently changed the plan — 2 screw machines instead of 0, and
+// supplyUsage reporting {rate:60, used:60, capped:true} twice while claiming 120
+// consumed. One pooled supply must plan identically regardless of how many rows
+// the player used to declare it.
+test('planExpansion: one HAVE row and two HAVE rows summing to the same total plan identically', () => {
+  const one = plan([
+    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'have', itemId: 'screw', rate: 120 },
+  ]);
+  const two = plan([
+    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'have', itemId: 'screw', rate: 60 },
+    { kind: 'have', itemId: 'screw', rate: 60 },
+  ]);
+  assert.equal(machinesOf(two, 'screw'), machinesOf(one, 'screw'));
+  assert.deepEqual(two.supplyUsage, one.supplyUsage);
+  assert.deepEqual(two.supplyUsage, [{ itemId: 'screw', kind: 'have', rate: 120, used: 120, capped: false }]);
 });
 
 test('computeNetOutput: an unconsumed block output leaves at its full rate', () => {

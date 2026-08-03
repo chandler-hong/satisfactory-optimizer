@@ -86,12 +86,23 @@ export function splitDemand(dataset, netPinned, wantRows, haveRows) {
     if (raw.has(w.itemId)) add(rawDemand, w.itemId, rate);
     else add(targets, w.itemId, rate);
   }
+  // Accumulate non-raw HAVE rows by itemId before emitting — mirrors the raw
+  // branch just above (`add(rawSupplied, ...)`) and is what the player means
+  // by declaring "300 from plant A, 200 from plant B": one pool of 500, not
+  // two competing rows. It also makes this function structurally incapable of
+  // emitting a duplicate (itemId, 'have') pair, closing the Task 2 collision
+  // (lp-builder.js's addSupplies keys LP variables on (itemId, kind)) at its
+  // source rather than downstream. Map iteration order is insertion order, so
+  // the emitted supplies stay in deterministic first-occurrence order, which
+  // the positional pairing with supplyDrawn depends on.
+  const haveTotals = new Map();
   for (const h of haveRows || []) {
     const rate = Math.max(0, Number(h?.rate) || 0);
     if (!h?.itemId || rate <= 0) continue;
     if (raw.has(h.itemId)) add(rawSupplied, h.itemId, rate);
-    else supplies.push({ itemId: h.itemId, rate, kind: 'have' });
+    else add(haveTotals, h.itemId, rate);
   }
+  for (const [itemId, rate] of haveTotals) supplies.push({ itemId, rate, kind: 'have' });
   return { targets, supplies, rawDemand, rawSupplied };
 }
 
