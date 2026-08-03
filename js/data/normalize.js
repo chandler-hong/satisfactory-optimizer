@@ -118,5 +118,31 @@ export function normalize(raw) {
     }
   }
 
-  return { items, buildings, recipes, rawResourceIds, generators, recipeUnlocks };
+  // Milestone part costs, for the Expansion view's Goals panel. Milestones are
+  // the only type kept: MAM / alternate / customization costs are research and
+  // unlock inputs, which answers a different question from "what parts do I need
+  // to build". Coerced and filtered like recipeUnlocks above — a dataset bump
+  // should degrade, not throw.
+  const goals = [];
+  for (const key of Object.keys(raw.schematics || {})) {
+    const s = raw.schematics[key];
+    if (s.type !== 'EST_Milestone') continue;
+    const cost = [];
+    for (const c of s.cost || []) {
+      const amount = Number(c?.amount);
+      if (typeof c?.item !== 'string' || !c.item) continue;
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      cost.push({ itemId: c.item, amount });
+    }
+    if (cost.length === 0) continue;          // nothing to shop for
+    goals.push({
+      id: String(s.className ?? key),
+      name: typeof s.name === 'string' ? s.name : '',
+      tier: typeof s.tier === 'number' ? s.tier : 0,
+      cost,
+      timeSec: Number(s.time) || 0,
+    });
+  }
+
+  return { items, buildings, recipes, rawResourceIds, generators, recipeUnlocks, goals };
 }

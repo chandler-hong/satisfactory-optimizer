@@ -49,6 +49,13 @@
  * @property {string} type  // raw schematic type, e.g. "EST_Milestone"
  * @property {number} tier  // 0 when the data gives no tier
  *
+ * @typedef {Object} Goal
+ * @property {string} id     schematic className
+ * @property {string} name   e.g. "Coal Power"
+ * @property {number} tier   0 when the data gives no tier
+ * @property {{itemId: string, amount: number}[]} cost  parts to deliver; never empty
+ * @property {number} timeSec  research time; 0 if absent
+ *
  * @typedef {Object} Dataset
  * @property {Map<string, Item>} items
  * @property {Map<string, Building>} buildings
@@ -56,6 +63,7 @@
  * @property {Set<string>} rawResourceIds
  * @property {Generator[]} generators
  * @property {Map<string, UnlockSource[]>} recipeUnlocks  // every schematic that unlocks a recipe
+ * @property {Goal[]} goals  milestone part costs; see js/domain/goals.js
  */
 
 /**

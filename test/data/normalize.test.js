@@ -135,3 +135,59 @@ test('coerces a malformed schematic name/type instead of passing it through', ()
   assert.equal(source.type, '');
   assert.equal(source.tier, 0, 'a non-numeric tier falls back to 0');
 });
+
+test('keeps milestone part costs as dataset.goals', () => {
+  const ds = normalize({
+    items: {}, buildings: {}, recipes: {}, resources: {},
+    schematics: {
+      'Schematic_3-1_C': {
+        className: 'Schematic_3-1_C', name: 'Coal Power', type: 'EST_Milestone', tier: 3, time: 480,
+        cost: [
+          { item: 'Desc_IronPlateReinforced_C', amount: 150 },
+          { item: 'Desc_Rotor_C', amount: 50 },
+        ],
+        unlock: { recipes: [] },
+      },
+    },
+  });
+  assert.equal(ds.goals.length, 1);
+  assert.deepEqual(ds.goals[0], {
+    id: 'Schematic_3-1_C',
+    name: 'Coal Power',
+    tier: 3,
+    cost: [
+      { itemId: 'Desc_IronPlateReinforced_C', amount: 150 },
+      { itemId: 'Desc_Rotor_C', amount: 50 },
+    ],
+    timeSec: 480,
+  });
+});
+
+test('dataset.goals excludes non-milestone schematic types', () => {
+  const ds = normalize({
+    items: {}, buildings: {}, recipes: {}, resources: {},
+    schematics: {
+      M:  { className: 'M',  name: 'Mile', type: 'EST_Milestone', tier: 1, cost: [{ item: 'A', amount: 5 }], unlock: { recipes: [] } },
+      R1: { className: 'R1', name: 'Res',  type: 'EST_MAM',       tier: 3, cost: [{ item: 'B', amount: 10 }], unlock: { recipes: [] } },
+      R2: { className: 'R2', name: 'Alt',  type: 'EST_Alternate', tier: 4, cost: [{ item: 'C', amount: 1 }],  unlock: { recipes: [] } },
+      R3: { className: 'R3', name: 'Sink', type: 'EST_ResourceSink', tier: 0, cost: [{ item: 'D', amount: 1 }], unlock: { recipes: [] } },
+    },
+  });
+  assert.deepEqual(ds.goals.map((g) => g.id), ['M']);
+});
+
+// A dataset bump must degrade, not throw — same posture as the schematic
+// name/type coercion above.
+test('dataset.goals drops malformed cost entries and cost-less milestones', () => {
+  const ds = normalize({
+    items: {}, buildings: {}, recipes: {}, resources: {},
+    schematics: {
+      Good:    { className: 'Good',    name: 'G', type: 'EST_Milestone', tier: '2', cost: [{ item: 'A', amount: '25' }, { item: 42, amount: 5 }, { item: 'B', amount: 0 }, { item: 'C' }], unlock: { recipes: [] } },
+      NoCost:  { className: 'NoCost',  name: 'N', type: 'EST_Milestone', tier: 1, unlock: { recipes: [] } },
+      Emptied: { className: 'Emptied', name: 'E', type: 'EST_Milestone', tier: 1, cost: [{ item: null, amount: 3 }], unlock: { recipes: [] } },
+    },
+  });
+  assert.deepEqual(ds.goals.map((g) => g.id), ['Good'], 'a milestone with no usable cost is dropped entirely');
+  assert.deepEqual(ds.goals[0].cost, [{ itemId: 'A', amount: 25 }], 'a numeric string amount coerces; bad item, zero amount, and missing amount drop');
+  assert.equal(ds.goals[0].tier, 0, 'a non-numeric tier falls back to 0');
+});
