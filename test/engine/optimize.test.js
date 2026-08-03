@@ -63,3 +63,68 @@ test('maxSets: weighted 2:1 (mf:rotor) respects the ratio', () => {
   const rotor = r.perPart.find((p) => p.itemId === 'rotor').rate;
   assert.ok(approx(mf, 2 * rotor, 1e-3), `mf ${mf} should be ~2x rotor ${rotor}`);
 });
+
+const unbounded = new Map([['ore', Infinity]]);
+const rate = (m, id) => Math.round((m.get(id) || 0) * 1e6) / 1e6;
+
+test('hitTargets: a partial supply is drained first and the overflow is built', () => {
+  const base = hitTargets({ dataset: ironChain, caps: unbounded, enabledRecipeIds: ALL_IRON_RECIPES, targets: { plate: 60, screw: 120 } });
+  assert.equal(rate(base.recipeRates, 'screw'), 3);
+  assert.equal(rate(base.recipeRates, 'rod'), 2);
+
+  const r = hitTargets({
+    dataset: ironChain, caps: unbounded, enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: { plate: 60, screw: 120 },
+    supplies: [{ itemId: 'screw', rate: 60, kind: 'have' }],
+  });
+  assert.equal(r.feasible, true);
+  assert.equal(rate(r.recipeRates, 'screw'), 1.5, 'builds for the 60/min the supply does not cover');
+  assert.equal(rate(r.recipeRates, 'rod'), 1);
+  assert.equal(rate(r.recipeRates, 'ingot'), 3.5);
+  assert.deepEqual(r.supplyDrawn, [{ itemId: 'screw', kind: 'have', used: 60 }]);
+});
+
+test('hitTargets: a supply covering demand builds nothing for that item', () => {
+  const r = hitTargets({
+    dataset: ironChain, caps: unbounded, enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: { plate: 60, screw: 120 },
+    supplies: [{ itemId: 'screw', rate: 120, kind: 'have' }],
+  });
+  assert.equal(rate(r.recipeRates, 'screw'), 0);
+  assert.equal(rate(r.recipeRates, 'rod'), 0, 'and nothing to feed it either');
+  assert.equal(rate(r.recipeRates, 'ingot'), 3);
+});
+
+// Guards the zero-cost degeneracy: `used` must mean "consumed", not "available".
+test('hitTargets: an oversized supply reports the amount consumed, not its cap', () => {
+  const r = hitTargets({
+    dataset: ironChain, caps: unbounded, enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: { plate: 60, screw: 120 },
+    supplies: [{ itemId: 'screw', rate: 300, kind: 'have' }],
+  });
+  assert.deepEqual(r.supplyDrawn, [{ itemId: 'screw', kind: 'have', used: 120 }]);
+});
+
+test('hitTargets: an unneeded supply reports zero rather than its cap', () => {
+  const r = hitTargets({
+    dataset: ironChain, caps: unbounded, enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: { plate: 60 },
+    supplies: [{ itemId: 'rotor', rate: 40, kind: 'pinned' }],
+  });
+  assert.deepEqual(r.supplyDrawn, [{ itemId: 'rotor', kind: 'pinned', used: 0 }]);
+});
+
+test('hitTargets: pinned supply is consumed before have supply', () => {
+  const r = hitTargets({
+    dataset: ironChain, caps: unbounded, enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: { screw: 120 },
+    supplies: [
+      { itemId: 'screw', rate: 80, kind: 'pinned' },
+      { itemId: 'screw', rate: 80, kind: 'have' },
+    ],
+  });
+  assert.deepEqual(r.supplyDrawn, [
+    { itemId: 'screw', kind: 'pinned', used: 80 },
+    { itemId: 'screw', kind: 'have', used: 40 },
+  ]);
+});

@@ -3,6 +3,44 @@ import { netPerMin } from '../domain/model.js';
 export const OBJ = '_objective_';
 export const RAWCOST = '_rawcost_';
 
+// Cost of drawing one unit from an already-on-hand supply. Both are strictly
+// positive on purpose: at exactly 0 the draw is degenerate — pulling the full cap
+// and wasting the excess is feasible at an identical objective, so the reported
+// draw stops meaning "what was consumed". Both sit far below any real raw cost and
+// ~9+ orders under the 1e6 slack penalty, so they cannot shift feasibility or
+// machine counts. `pinned` < `have` so a block's own byproduct is consumed before
+// the bus is tapped.
+const SUPPLY_COST = { pinned: 1e-9, have: 1e-6 };
+
+/** LP variable name for an on-hand supply. Kinds stay separate so each draw stays measurable. */
+export function supplyVarName(itemId, kind) {
+  return `_supply_${kind}_${itemId}`;
+}
+
+/**
+ * Add "up to `rate`/min already on hand" sources. Each is a variable producing
+ * the item, bounded by its own {max} constraint, so demand beyond `rate` spills
+ * into real machines instead of vanishing.
+ *
+ * Raw items are skipped: their constraints hold NET CONSUMPTION (see
+ * buildVariables), so a +1 coefficient would invert the sign and loosen the cap.
+ */
+function addSupplies(dataset, variables, constraints, supplies) {
+  for (const s of supplies || []) {
+    const rate = Number(s?.rate);
+    if (!s?.itemId || !Number.isFinite(rate) || rate <= 0) continue;
+    if (dataset.rawResourceIds.has(s.itemId)) continue;
+    const kind = s.kind === 'pinned' ? 'pinned' : 'have';
+    const capKey = `_supcap_${kind}_${s.itemId}`;
+    variables[supplyVarName(s.itemId, kind)] = {
+      [s.itemId]: 1,
+      [RAWCOST]: SUPPLY_COST[kind],
+      [capKey]: 1,
+    };
+    constraints[capKey] = { max: rate };
+  }
+}
+
 // Build the per-recipe variable coefficient maps + the raw/non-raw item sets.
 // Shared by every mode. Returns { variables, touchedRaw, touchedNonRaw }.
 function buildVariables(dataset, enabledRecipeIds) {
@@ -66,7 +104,7 @@ export function buildMinRawModel(args, minTarget) {
   return model;
 }
 
-export function buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false }) {
+export function buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const targetMap = targets instanceof Map ? targets : new Map(Object.entries(targets));
   const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);
   const constraints = rawConstraints(touchedRaw, caps);
@@ -78,6 +116,7 @@ export function buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets
     constraints[t] = { min: d };
     variables[`_slack_${t}`] = { [t]: 1, [RAWCOST]: 1e6 };
   }
+  addSupplies(dataset, variables, constraints, supplies);
   return { optimize: RAWCOST, opType: 'min', constraints, variables };
 }
 

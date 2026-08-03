@@ -1,4 +1,4 @@
-import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel } from './lp-builder.js';
+import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel, supplyVarName } from './lp-builder.js';
 import { solveModel } from './solver.js';
 
 function ratesFrom(values, enabledRecipeIds) {
@@ -59,15 +59,24 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
 }
 
 /** Hit target rates with minimum raw usage; slack variables report shortfalls. */
-export function hitTargets({ dataset, caps, enabledRecipeIds, targets, noWaste = false }) {
+export function hitTargets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const targetMap = targets instanceof Map ? targets : new Map(Object.entries(targets));
-  const r = solveModel(buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets: targetMap, noWaste }));
+  const r = solveModel(buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets: targetMap, noWaste, supplies }));
   const shortfalls = new Map();
   for (const t of targetMap.keys()) {
     const s = r.values[`_slack_${t}`] || 0;
     if (s > 1e-6) shortfalls.set(t, s);
   }
   const recipeRates = ratesFrom(r.values, enabledRecipeIds);
+  // How much of each on-hand supply the plan actually consumed. One entry per
+  // input supply, in input order, so callers can pair it back up positionally
+  // and report "used X of Y". A skipped supply (raw, or a non-positive rate)
+  // reports 0 rather than being omitted, so the arrays stay aligned.
+  const supplyDrawn = (supplies || []).map((s) => {
+    const kind = s?.kind === 'pinned' ? 'pinned' : 'have';
+    const used = r.values[supplyVarName(s?.itemId, kind)] || 0;
+    return { itemId: s?.itemId, kind, used: Math.round(used * 1e6) / 1e6 };
+  });
   return {
     // Defense-in-depth: the target-rates model is always feasible today (the
     // slack variables guarantee a feasible point), so this AND-clause is inert
@@ -76,6 +85,7 @@ export function hitTargets({ dataset, caps, enabledRecipeIds, targets, noWaste =
     feasible: r.feasible && shortfalls.size === 0,
     recipeRates,
     shortfalls,
+    supplyDrawn,
     bindingResources: bindingResources(dataset, caps, recipeRates),
   };
 }

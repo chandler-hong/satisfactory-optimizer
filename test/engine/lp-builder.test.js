@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, OBJ, RAWCOST } from '../../js/engine/lp-builder.js';
+import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, supplyVarName, OBJ, RAWCOST } from '../../js/engine/lp-builder.js';
 
 // tiny synthetic dataset: ore(raw) -> ingot -> plate
 const io = (itemId, perMin) => ({ itemId, perMin });
@@ -54,4 +54,50 @@ test('buildTargetRatesModel: adds slack var + target min-constraint, minimizes r
   assert.deepEqual(m.constraints.plate, { min: 10 });
   assert.equal(m.variables._slack_plate.plate, 1);
   assert.equal(m.variables._slack_plate[RAWCOST], 1e6);
+});
+
+test('buildTargetRatesModel: a supply adds a capped producing variable at negligible cost', () => {
+  const m = buildTargetRatesModel({
+    dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 },
+    supplies: [{ itemId: 'ingot', rate: 30, kind: 'have' }],
+  });
+  const v = m.variables[supplyVarName('ingot', 'have')];
+  assert.equal(v.ingot, 1, 'produces the item');
+  assert.equal(v[RAWCOST], 1e-6);
+  assert.deepEqual(m.constraints._supcap_have_ingot, { max: 30 });
+  assert.equal(v._supcap_have_ingot, 1, 'the variable is what the cap constrains');
+});
+
+test('buildTargetRatesModel: pinned supply is cheaper than have, and both are strictly positive', () => {
+  const m = buildTargetRatesModel({
+    dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 },
+    supplies: [
+      { itemId: 'ingot', rate: 30, kind: 'pinned' },
+      { itemId: 'ingot', rate: 30, kind: 'have' },
+    ],
+  });
+  const pinned = m.variables[supplyVarName('ingot', 'pinned')][RAWCOST];
+  const have = m.variables[supplyVarName('ingot', 'have')][RAWCOST];
+  assert.ok(pinned > 0, 'zero cost would leave the draw degenerate');
+  assert.ok(have > pinned, 'consume your own byproduct before pulling from the bus');
+  assert.ok(have < 1, 'must not perturb real raw costs');
+  assert.notEqual(supplyVarName('ingot', 'pinned'), supplyVarName('ingot', 'have'));
+});
+
+// Raw constraints hold NET CONSUMPTION, so a +1 coefficient would invert the
+// sign and loosen the ore cap instead of supplying ore.
+test('buildTargetRatesModel: a supply for a raw resource is ignored', () => {
+  const m = buildTargetRatesModel({
+    dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 },
+    supplies: [{ itemId: 'ore', rate: 500, kind: 'have' }],
+  });
+  assert.equal(m.variables[supplyVarName('ore', 'have')], undefined);
+  assert.equal(m.constraints._supcap_have_ore, undefined);
+  assert.deepEqual(m.constraints.ore, { max: 60 }, 'the ore cap is untouched');
+});
+
+test('buildTargetRatesModel: omitting supplies yields the pre-existing model exactly', () => {
+  const withArg = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 }, supplies: [] });
+  const without = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 } });
+  assert.deepEqual(withArg, without);
 });
