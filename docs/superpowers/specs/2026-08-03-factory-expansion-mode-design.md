@@ -153,9 +153,16 @@ sign, and note both sides land on the same mechanism:
 
 | Sign | Meaning | Becomes |
 |---|---|---|
-| negative | blocks consume it | a **target** for the residual solve |
+| negative, non-raw | blocks consume it | a **target** for the residual solve |
+| negative, **raw** | blocks consume ore directly | added straight to `rawNeeded` (§5.4) |
 | positive | blocks produce it (incl. byproducts) | a **free capped supply** |
 | zero | perfectly internally balanced | nothing |
+
+The raw case matters: a block that eats ore directly (a Smelter on Iron Ingot) has
+no upstream to build, so routing it through the LP as a target would be wrong —
+`hitTargets` would report it as satisfied by the ore constraint and it would then be
+missing from the raw footer entirely. It bypasses the LP and is summed with the LP's
+own raw draw in `rawNeeded`.
 
 This makes block-to-block feeding fall out of the arithmetic rather than needing
 its own pass: `6× Constructor → Rotor` alongside `6× Assembler → Motor` nets Rotor
@@ -189,12 +196,20 @@ A near-zero `RAWCOST` coefficient means the minimiser always drains free supply
 before building anything. The `max` cap means demand beyond `rate` spills into real
 machines instead of silently vanishing.
 
-`cost` is `0` for `pinned` and `1e-6` for `have`. The tiebreak makes the solver
-consume what your own blocks already emit before pulling from the bus, which is
-both the physically sensible order and the one that keeps `supplyUsage` honest. The
-epsilon is ~12 orders of magnitude below the `1e6` slack penalty, so it cannot
-change feasibility or machine counts — only the attribution between two otherwise
-identical sources.
+`cost` is `1e-9` for `pinned` and `1e-6` for `have`. The ordering makes the solver
+consume what your own blocks already emit before pulling from the bus, which is both
+the physically sensible order and the one that keeps `supplyUsage` honest. Both are
+≥9 orders of magnitude below the `1e6` slack penalty and far below any real raw
+cost, so neither can change feasibility or machine counts — only the attribution
+between two otherwise identical sources.
+
+**Both costs must be strictly positive.** A cost of exactly `0` leaves the draw
+degenerate: pulling the full cap and wasting the excess is feasible at an identical
+objective value, so the solver may report `used` as the whole supply regardless of
+what was actually consumed, corrupting both `supplyUsage` and `netOutput`. A
+strictly positive cost makes the draw exactly the amount consumed. Verified: with
+`have` supply 300 against demand 120, `used` is 120, not 300; and an unused `pinned`
+supply reports 0, not its cap.
 
 **Why the kinds must stay separate.** A single merged supply variable per item
 would make §6's `netOutput` unrecoverable: with `netPinned = +320` Smart Plating and
@@ -235,6 +250,10 @@ with what was typed. Blocks are echoed as declared, via `blockRows` (§6).
 For each raw with non-zero usage, report `needed`, `supplied` (from any raw HAVE
 row, §3.3), and `newRate = max(0, needed - supplied)`, plus the extractor count
 needed to cover `newRate`.
+
+`needed` is the sum of two sources: the LP's own raw draw (computed exactly as
+`rawUsage` in `view-model.js` already does) **plus** any negative raw `netPinned`
+from blocks that consume ore directly (§5.1).
 
 Rates come from the existing constants in `js/engine/resource-model.js`
 (`MINER_RATES`, `OIL_EXTRACTOR_RATES`, `WELL_SATELLITE_RATES`,
@@ -277,21 +296,30 @@ here becomes a wrong number there. Per item:
 
 ```
 netOutput[item] = netPinned[item]                  // blocks' own net (§5.1)
-                + netFromLPRecipes[item]            // upstream machines' net
-                - drawn['pinned'][item]             // block surplus consumed internally
+                + netFromLPRecipes[item]            // upstream machines' net, inputs included
+                + drawn['have'][item]               // bus supply pulled in from outside
 ```
 
-`drawn['have'][item]` is deliberately **not** subtracted: bus supply was never
-expansion output, so consuming it does not reduce what the expansion emits.
-`netFromLPRecipes` is computed from `recipeRates` and `netPerMin`, exactly as
-`rawUsage` in `view-model.js` already does for raws.
+`netFromLPRecipes` sums `netPerMin` over every running recipe, so an upstream
+machine's *consumption* of a block's surplus is already counted there.
 
-Worked example — 8 Assemblers on Smart Plating netting +320/min, a HAVE row of 300
-Rubber, and the upstream drawing 260 Rubber and 0 Smart Plating:
+**`drawn['pinned']` must not be subtracted.** It is tempting — the block surplus did
+get eaten — but it double-counts: the eating already appears as a negative term in
+`netFromLPRecipes`. Concretely, with blocks netting +130 Rod and new Screw machines
+consuming 30 Rod, the correct answer is `130 - 30 = 100` Rod leaving; subtracting the
+30 drawn as well gives 70.
 
-- Smart Plating: `320 + 0 - 0 = 320`/min leaves. ✔ available to a Phase 2 goal.
-- Rubber: `-x + x - 0 = 0` net, with 260 of the 300 bus supply drawn. ✔ not
-  reported as output.
+`drawn['have']` *is* added, because bus supply is an inflow from outside the
+expansion that `netPinned` and `netFromLPRecipes` know nothing about.
+
+Worked examples, all verified against the solver:
+
+| Case | Result |
+|---|---|
+| 2 blocks on Reinforced Plate, nothing else | `rip: 10` leaves |
+| Blocks net +130 Rod; new Screw machines eat 30 | `rod: 100` leaves |
+| Blocks net +60 Screw **and** a WANT row of 200 Screw | `screw: 200` leaves — the surplus counts toward the want rather than being deducted from it |
+| HAVE Screw 300, demand 120 | nothing leaves; `used` is 120, not 300 |
 
 Items with `netOutput <= 1e-6` are omitted from the panel.
 
@@ -377,7 +405,25 @@ field, default 10. The row's rate is `ceil(amount / N * 100) / 100`.
 Only uncovered parts are added, and the button's label states the count so the
 action is never a surprise.
 
-## 8. Refactor — extract `buildGraph`
+## 8. Refactors
+
+### 8.1 Extract `createSearchSelect` (required, not optional)
+
+Both new row types need a picker over a few hundred options — 300+ machine recipes
+for block rows, 175 items for want/have rows. A plain `<select>` at that size is
+unusable, and the searchable combobox that solves it already exists as
+`createSearchSelect` in `js/ui/inputs.js:78-222` — but as a module-private
+function.
+
+It moves verbatim to `js/ui/search-select.js` and is imported by both `inputs.js`
+and `expansion.js`. This is the same extraction the icon helper already went
+through in `aa006a9`, and it is a **prerequisite** for the view task, not a
+nice-to-have: the alternative is duplicating ~145 lines of focus/blur/mousedown
+sequencing that took care to get right.
+
+`iconUrl` (already exported from `js/ui/icons.js`) is the only import it needs.
+
+### 8.2 Extract `buildGraph` (optional)
 
 `buildGraph` is ~105 of `js/ui/view-model.js`'s 345 lines, is already pure, and is
 exactly what a diagram for this view needs. It moves verbatim to
@@ -430,9 +476,10 @@ untouched, so no existing consumer changes.
 | 3 | `planExpansion` — pin/split/solve/realize, incl. `netOutput` (§6.1) | `engine/expansion.js`, `expansion.test.js` |
 | 4 | Raw footer: `needed`/`supplied`/`newRate` + extractor options | `engine/expansion.js`, `expansion.test.js` |
 | 5 | Goal catalog + evaluation | `domain/goals.js`, `goals.test.js` |
-| 6 | The view | `ui/expansion.js`, `index.html`, `main.js`, `styles.css` |
-| 7 | Goals panel + `Add shortfall` wiring | `ui/expansion.js` |
-| 8 | Extract `buildGraph`, add the diagram | `engine/graph.js`, `view-model.js`, `ui/expansion.js` |
+| 6 | Extract `createSearchSelect` (§8.1) | `ui/search-select.js`, `inputs.js` |
+| 7 | The view | `ui/expansion.js`, `index.html`, `main.js`, `styles.css` |
+| 8 | Goals panel + `Add shortfall` wiring | `ui/expansion.js` |
+| 9 | Extract `buildGraph`, add the diagram (§8.2, droppable) | `engine/graph.js`, `view-model.js`, `ui/expansion.js` |
 
 ## 12. Testing (TDD, `node --test`)
 
@@ -457,12 +504,18 @@ Anchor cases:
 8. A **raw** HAVE row never appears in `supplyUsage`, and reduces `rawNeeded`
    `newRate` by its rate (§3.3); a raw HAVE row exceeding demand gives
    `newRate === 0` and no extractor line.
-9. Clock scaling: `6 machines @ 150%` demands the same as `9 @ 100%`.
+9. Clock scaling: `4 machines @ 150%` demands the same as `6 @ 100%`.
+9b. A block consuming a **raw** directly contributes to `rawNeeded` and produces no
+    LP target and no upstream machines (§5.1).
 10. Unreachable target surfaces as a shortfall, not a throw.
 11. Raw footer extractor counts for a solid, for water, and for oil.
-12. `netOutput` per §6.1's worked example: an unconsumed block output is reported at
-    its full rate; an item whose demand is met from bus supply reports zero; a
-    partially-internally-consumed block output reports only the remainder.
+12. `netOutput` per §6.1's four worked cases, including the two that catch the
+    double-count: a block surplus partly eaten upstream reports only the remainder
+    (130 − 30 = 100, not 70), and a block surplus under a larger WANT row counts
+    toward it (200, not 140).
+12b. A `have` supply larger than demand reports `used` equal to demand, not to its
+    cap; an unused `pinned` supply reports `used === 0`. (Guards the zero-cost
+    degeneracy in §5.2.)
 13. Goal ETA = max across parts; uncovered part → `etaMinutes === null`.
 14. `Add shortfall` rate conversion honours `fillMinutes`.
 15. Existing callers of `buildTargetRatesModel` without `supplies` produce a
