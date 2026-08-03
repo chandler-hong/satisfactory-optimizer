@@ -14,6 +14,7 @@ import { hitTargets } from './optimize.js';
 import { realize } from './physical-layer.js';
 import { beltReport } from './belt-layer.js';
 import { analyzeRequirements } from './requirements.js';
+import { MINER_RATES, OIL_EXTRACTOR_RATES, WELL_SATELLITE_RATES, WATER_EXTRACTOR_RATE } from './resource-model.js';
 
 const EPS = 1e-6;
 const round6 = (x) => Math.round(x * 1e6) / 1e6;
@@ -155,6 +156,65 @@ function lpRawUsage(dataset, recipeRates) {
     for (const o of recipe.outputs) if (dataset.rawResourceIds.has(o.itemId)) add(usage, o.itemId, -load * o.perMin);
   }
   return usage;
+}
+
+const WATER_ID = 'Desc_Water_C';
+const OIL_ID = 'Desc_LiquidOil_C';
+const NITROGEN_ID = 'Desc_NitrogenGas_C';
+
+/**
+ * Whole extractors needed to cover `rate`/min of `itemId`, as labelled options.
+ * Reuses the rate tables in resource-model.js rather than dataset.miners, whose
+ * fluid entries are in the raw x1000 units.
+ */
+function extractorOptions(itemId, rate) {
+  if (rate <= EPS) return [];
+  const count = (per) => ({ count: Math.ceil(rate / per - 1e-9) });
+  if (itemId === WATER_ID) return [{ label: 'Water Extractor', ...count(WATER_EXTRACTOR_RATE) }];
+  if (itemId === OIL_ID) {
+    return [
+      { label: 'Oil Extractor · normal', ...count(OIL_EXTRACTOR_RATES.normal) },
+      { label: 'Oil Extractor · pure', ...count(OIL_EXTRACTOR_RATES.pure) },
+    ];
+  }
+  if (itemId === NITROGEN_ID) {
+    return [
+      { label: 'Well Satellite · normal', ...count(WELL_SATELLITE_RATES.normal) },
+      { label: 'Well Satellite · pure', ...count(WELL_SATELLITE_RATES.pure) },
+    ];
+  }
+  const options = [];
+  for (const tier of ['Mk1', 'Mk2', 'Mk3']) {
+    for (const purity of ['normal', 'pure']) {
+      options.push({ label: `Miner ${tier.replace('Mk', 'Mk.')} · ${purity}`, ...count(MINER_RATES[tier][purity]) });
+    }
+  }
+  return options;
+}
+
+/**
+ * Raw resources the expansion draws, what an existing supply already covers, and
+ * the extraction still to build. Uncapped by design — see spec §2.
+ */
+export function rawNeededRows(dataset, rawUsage, rawSupplied) {
+  const rows = [];
+  for (const [itemId, rawRate] of rawUsage) {
+    const needed = round6(rawRate);
+    if (needed <= EPS) continue;
+    const supplied = round6(rawSupplied.get(itemId) || 0);
+    const newRate = round6(Math.max(0, needed - supplied));
+    rows.push({
+      itemId,
+      name: nameOf(dataset, itemId),
+      slug: slugOf(dataset, itemId),
+      fluid: fluidOf(dataset, itemId),
+      needed,
+      supplied,
+      newRate,
+      options: extractorOptions(itemId, newRate),
+    });
+  }
+  return rows.sort((a, b) => b.needed - a.needed);
 }
 
 /**
@@ -306,8 +366,13 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
       .map(([itemId, rate]) => ({ itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), rate: round6(rate), fluid: fluidOf(dataset, itemId) }))
       .sort((a, b) => b.rate - a.rate),
     supplyUsage,
-    rawUsage,        // Map<itemId, ratePerMin>; Task 4 turns this into rawNeeded
-    rawSupplied,     // Map<itemId, ratePerMin> from raw HAVE rows
+    // rawUsage is kept (not folded away entirely) because rawNeededRows below
+    // skips any itemId whose needed <= EPS — which a merely-floored-to-0 value
+    // and a left-negative one both satisfy identically — so the "never negative"
+    // floor a few lines up is otherwise unobservable from outside this module.
+    // rawSupplied has no such external reader and is passed straight through.
+    rawUsage,        // Map<itemId, ratePerMin>
+    rawNeeded: rawNeededRows(dataset, rawUsage, rawSupplied),
     shortfalls,
     requirements,
     beltRows: belts.map((f) => ({ itemId: f.itemId, name: nameOf(dataset, f.itemId), slug: slugOf(dataset, f.itemId), rate: f.rate, lines: f.lines, tier: f.tier, fluid: f.fluid, saturated: f.saturated })),

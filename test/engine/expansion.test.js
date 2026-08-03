@@ -6,6 +6,7 @@ import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 const rateOf = (m, id) => r6(m.get(id) || 0);
 const machinesOf = (plan, recipeId) => plan.buildRows.find((b) => b.recipeId === recipeId)?.machines ?? 0;
+const rawFor = (p, itemId) => p.rawNeeded.find((r) => r.itemId === itemId);
 
 const plan = (rows, extra = {}) => planExpansion({
   dataset: ironChain, rows, enabledRecipeIds: ALL_IRON_RECIPES, ...extra,
@@ -155,7 +156,7 @@ test('planExpansion: rawUsage combines a direct block draw with a separate LP re
   // The block's 30 ingot/min covers half of the want; the LP builds its own
   // ingot machine for the other 30 ingot/min (1 machine, not a duplicate of
   // the block's own machine, which is pinned and never enters buildRows).
-  assert.equal(rateOf(p.rawUsage, 'ore'), 60, '30 from the block plus 30 from the LP residual');
+  assert.equal(rawFor(p, 'ore').needed, 60, '30 from the block plus 30 from the LP residual');
   assert.equal(machinesOf(p, 'ingot'), 1, 'only the LP residual ingot machine, not the pinned block');
 });
 
@@ -167,7 +168,7 @@ test('planExpansion: a block netting a raw surplus credits rawUsage instead of v
     { kind: 'block', recipeId: 'oreMaker', machines: 10, clock: 1 },  // +50 ore/min
     { kind: 'want', itemId: 'ore', rate: 80 },
   ]);
-  assert.equal(rateOf(p.rawUsage, 'ore'), 30, '80 wanted minus the 50 the block already makes');
+  assert.equal(rawFor(p, 'ore').needed, 30, '80 wanted minus the 50 the block already makes');
 });
 
 test('planExpansion: rawUsage never goes negative when a raw credit exceeds demand', () => {
@@ -308,4 +309,68 @@ test('planExpansion: no rows yields an empty, feasible plan', () => {
   assert.equal(p.tiles.machines, 0);
   assert.deepEqual(p.buildRows, []);
   assert.equal(p.hasPlan, false);
+});
+
+test('rawNeeded: reports the rate and whole miners for a solid', () => {
+  // 2x rip -> 120 ore/min (verified in the one-block test above).
+  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const ore = rawFor(p, 'ore');
+  assert.equal(ore.needed, 120);
+  assert.equal(ore.supplied, 0);
+  assert.equal(ore.newRate, 120);
+  // Mk.1 normal = 60 -> 2; Mk.2 normal = 120 -> 1; Mk.3 pure = 480 -> 1
+  assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · normal').count, 2);
+  assert.equal(ore.options.find((o) => o.label === 'Miner Mk.2 · normal').count, 1);
+  assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · pure').count, 1);
+});
+
+test('rawNeeded: a raw have row is netted off, not shown as supply usage', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'have', itemId: 'ore', rate: 60 },
+  ]);
+  const ore = rawFor(p, 'ore');
+  assert.equal(ore.needed, 120);
+  assert.equal(ore.supplied, 60);
+  assert.equal(ore.newRate, 60);
+  assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · normal').count, 1);
+  assert.deepEqual(p.supplyUsage, [], 'raw supply never appears in supplyUsage');
+});
+
+test('rawNeeded: a raw have row covering everything needs no new extraction', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'have', itemId: 'ore', rate: 500 },
+  ]);
+  const ore = rawFor(p, 'ore');
+  assert.equal(ore.newRate, 0);
+  assert.deepEqual(ore.options, [], 'nothing to build');
+});
+
+test('rawNeeded: a block eating ore directly still reaches the footer', () => {
+  const p = plan([{ kind: 'block', recipeId: 'ingot', machines: 3, clock: 1 }]);
+  assert.equal(p.tiles.machines, 0, 'nothing upstream to build');
+  assert.equal(rawFor(p, 'ore').needed, 90);
+});
+
+test('rawNeeded: water, oil, and nitrogen use their own extractors', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const fluids = {
+    items: new Map([
+      ['Desc_Water_C', { id: 'Desc_Water_C', name: 'Water', slug: 'water', liquid: true }],
+      ['Desc_LiquidOil_C', { id: 'Desc_LiquidOil_C', name: 'Crude Oil', slug: 'crude-oil', liquid: true }],
+      ['Desc_NitrogenGas_C', { id: 'Desc_NitrogenGas_C', name: 'Nitrogen Gas', slug: 'nitrogen-gas', liquid: true }],
+      ['blend', { id: 'blend', name: 'Blend', slug: 'blend', liquid: false }],
+    ]),
+    buildings: new Map([['b', { id: 'b', name: 'Blender', slug: 'blender', basePowerMW: 75, powerExponent: 1.321928 }]]),
+    rawResourceIds: new Set(['Desc_Water_C', 'Desc_LiquidOil_C', 'Desc_NitrogenGas_C']),
+    recipes: [{ id: 'mix', name: 'Mix', buildingId: 'b', alternate: false, timeSec: 60,
+      inputs: [io('Desc_Water_C', 240), io('Desc_LiquidOil_C', 120), io('Desc_NitrogenGas_C', 60)],
+      outputs: [io('blend', 60)] }],
+  };
+  const p = planExpansion({ dataset: fluids, rows: [{ kind: 'want', itemId: 'blend', rate: 60 }], enabledRecipeIds: new Set(['mix']) });
+  const find = (id) => p.rawNeeded.find((r) => r.itemId === id);
+  assert.equal(find('Desc_Water_C').options.find((o) => o.label === 'Water Extractor').count, 2);      // 240/120
+  assert.equal(find('Desc_LiquidOil_C').options.find((o) => o.label === 'Oil Extractor · normal').count, 1); // 120/120
+  assert.equal(find('Desc_NitrogenGas_C').options.find((o) => o.label === 'Well Satellite · normal').count, 1); // 60/60
 });
