@@ -101,3 +101,22 @@ test('buildTargetRatesModel: omitting supplies yields the pre-existing model exa
   const without = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 } });
   assert.deepEqual(withArg, without);
 });
+
+// Guards the input-validation skip path in addSupplies (a non-positive/non-finite
+// rate, or a missing itemId, must be dropped). Checked generically by prefix so
+// this fails if the guard is ever weakened, regardless of which malformed field
+// slips through.
+test('buildTargetRatesModel: a malformed supply is skipped — no variable, no cap constraint', () => {
+  const cases = [
+    { label: 'zero rate', supply: { itemId: 'ingot', rate: 0, kind: 'have' } },
+    { label: 'negative rate', supply: { itemId: 'ingot', rate: -5, kind: 'have' } },
+    { label: 'non-numeric rate', supply: { itemId: 'ingot', rate: 'abc', kind: 'have' } },
+    { label: 'missing rate', supply: { itemId: 'ingot', kind: 'have' } },
+    { label: 'missing itemId', supply: { rate: 30, kind: 'have' } },
+  ];
+  for (const { label, supply } of cases) {
+    const m = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 }, supplies: [supply] });
+    assert.ok(!Object.keys(m.variables).some((k) => k.startsWith('_supply_')), `${label}: no supply variable should be created`);
+    assert.ok(!Object.keys(m.constraints).some((k) => k.startsWith('_supcap_')), `${label}: no cap constraint should be created`);
+  }
+});
