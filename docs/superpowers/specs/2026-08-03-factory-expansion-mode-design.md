@@ -277,7 +277,7 @@ Nitrogen Gas reports Well Satellites. A raw fully covered by a HAVE row reports
 | `machineTotals` | per building type, sorted desc |
 | `blockRows` | the declared blocks, echoed with derived building + net output |
 | `netOutput` | per item, what actually leaves the expansion (§6.1) |
-| `supplyUsage` | per non-raw supply: `itemId`, `kind`, `rate`, `used`, `capped` |
+| `supplyUsage` | per **declared** (HAVE) non-raw supply: `itemId`, `kind`, `rate`, `used`, `capped`. A block's own `pinned` byproduct surplus is excluded — it isn't something the user declared, and `netOutput` already reports it in full. |
 | `rawNeeded` | per raw: `needed`, `supplied`, `newRate` + extractor options |
 | `beltRows` | reuses the existing `beltReport` row shape |
 | `requirements` | reuses the existing diagnostics shape |
