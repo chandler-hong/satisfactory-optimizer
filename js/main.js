@@ -4,6 +4,7 @@ import { renderResults } from './ui/render.js';
 import { buildInputs } from './ui/inputs.js';
 import { buildPower } from './ui/power.js';
 import { buildCodex } from './ui/codex.js';
+import { buildExpansion } from './ui/expansion.js';
 
 const THEME_KEY = 'theme';
 
@@ -46,11 +47,12 @@ restoreTheme();
 document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
 
 // View tabs: the Factory optimizer, the standalone Power generation calculator,
-// and the Codex item/recipe reference.
+// the Codex item/recipe reference, and the Expansion planner.
 const VIEWS = {
   factory: { viewId: 'view-factory', tabId: 'tab-factory' },
   power: { viewId: 'view-power', tabId: 'tab-power' },
   codex: { viewId: 'view-codex', tabId: 'tab-codex' },
+  expansion: { viewId: 'view-expansion', tabId: 'tab-expansion' },
 };
 
 function showView(active) {
@@ -137,6 +139,7 @@ async function boot() {
 
   buildSecondaryView(dataset, 'view-power', 'Power generation', buildPower);
   buildSecondaryView(dataset, 'view-codex', 'Codex', buildCodex);
+  buildSecondaryView(dataset, 'view-expansion', 'Expansion', buildExpansion);
 
   function recompute() {
     const req = readRequest();
