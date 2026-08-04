@@ -43,7 +43,7 @@ function add(map, k, v) {
  * — so a bad clock value can no longer show one percentage while the plan
  * computes at another.
  */
-function normalizeClock(clock) {
+export function normalizeClock(clock) {
   const n = Number(clock);
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
@@ -124,9 +124,12 @@ export function splitDemand(dataset, netPinned, wantRows, haveRows) {
   // branch just above (`add(rawSupplied, ...)`) and is what the player means
   // by declaring "300 from plant A, 200 from plant B": one pool of 500, not
   // two competing rows. It also makes this function structurally incapable of
-  // emitting a duplicate (itemId, 'have') pair, closing the Task 2 collision
-  // (lp-builder.js's addSupplies keys LP variables on (itemId, kind)) at its
-  // source rather than downstream. Map iteration order is insertion order, so
+  // emitting a duplicate (itemId, 'have') pair. That closes the collision at
+  // its source rather than downstream: lp-builder.js's addSupplies keys LP
+  // variables on (itemId, kind), so two rows for one item would silently
+  // overwrite each other's cap and report the same draw twice — claiming both
+  // rows' supply was consumed while only sizing machines for one of them.
+  // Map iteration order is insertion order, so
   // the emitted supplies stay in deterministic first-occurrence order, which
   // the positional pairing with supplyDrawn depends on.
   const haveTotals = new Map();
@@ -331,7 +334,8 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   for (const rid of recipeRates.keys()) {
     for (const o of byId.get(rid)?.outputs || []) builtItems.add(o.itemId);
   }
-  // Scoped to 'have' rows, not every supply entry: an unfiltered map would
+  // Deliberate departure from the original design sketch, which mapped every
+  // supply entry. Scoped to 'have' rows instead: an unfiltered map would
   // also surface a block's own unconsumed 'pinned' surplus, which is already
   // fully reported by netOutput — and the have-row tests below assert
   // supplyUsage holds only the declared (have-kind) row, so leaving the
@@ -402,6 +406,12 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
 
   return {
     feasible: solved.feasible,
+    // Counts rows as SUBMITTED, before validation, so it's true for a plan whose
+    // only row has a stale recipeId and therefore produces nothing. Not the flag
+    // to branch on when deciding whether to render — expansion-render.js's
+    // hasContent() checks the validated output arrays instead, and deliberately
+    // ignores this. Kept because it's a cheap "did the user type anything at
+    // all" signal, distinct from "did it yield a plan".
     hasPlan: blockRows.length > 0 || wantRows.length > 0,
     tiles: {
       machines: phys.totalMachines,

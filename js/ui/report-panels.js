@@ -46,11 +46,17 @@ export function renderTile(label, value) {
   return tile;
 }
 
-export function renderTilesPanel(tiles) {
+/**
+ * `labels` overrides individual tile captions. The Optimizer wants the defaults —
+ * its totals cover the whole build — but the Expansion view's tiles cover the
+ * UPSTREAM only, excluding the blocks the user declared, so a bare "Machines"
+ * there reads as the full commitment and undercounts it.
+ */
+export function renderTilesPanel(tiles, labels = {}) {
   const wrap = el('div', 'tiles');
-  wrap.appendChild(renderTile('Machines', tiles.machines));
-  wrap.appendChild(renderTile('Power (MW)', tiles.powerMW));
-  wrap.appendChild(renderTile('Shards', tiles.shards));
+  wrap.appendChild(renderTile(labels.machines ?? 'Machines', tiles.machines));
+  wrap.appendChild(renderTile(labels.powerMW ?? 'Power (MW)', tiles.powerMW));
+  wrap.appendChild(renderTile(labels.shards ?? 'Shards', tiles.shards));
   return wrap;
 }
 

@@ -223,19 +223,18 @@ export function renderGoals(wrap, goalViews, shortfallCount, onAddShortfalls) {
 }
 
 /**
- * Whether there's anything to show at all. Deliberately NOT `plan.hasPlan`:
- * that flag is computed by planExpansion from pre-validation row counts (any
- * row tagged kind:'block'/'want', even one whose picker was never given a
- * value), so a row that fails validation would leave every panel below empty
- * while `hasPlan` still reported true — the empty-state message would never
- * show. This checks the validated output actually driving the panels instead.
+ * Whether the plan has a BUILD to show. Deliberately NOT `plan.hasPlan`: that
+ * flag is computed by planExpansion from pre-validation row counts (any row
+ * tagged kind:'block'/'want', even one whose picker was never given a value), so
+ * a row that fails validation would leave every panel below empty while
+ * `hasPlan` still reported true — the empty-state message would never show.
+ * This checks the validated output actually driving the panels instead.
  *
- * `requirements`/`shortfalls` ARE included (unlike the eight build panels,
- * which stay keyed off rows/graph data only): a want row for an item with no
- * enabled recipe, or one the LP can't fully satisfy, produces zero build rows
- * but a non-empty `requirements`/`shortfalls` — that plan has content worth
- * showing (the diagnostic callout renderPlan renders below), so it must not
- * fall through to the "add a block" empty-state hint.
+ * Diagnostics are deliberately NOT part of this. They're handled separately by
+ * hasDiagnostics, because they answer a different question: this one gates the
+ * tiles and the eight build panels, that one gates the callouts above them. An
+ * earlier version folded diagnostics in here, which meant an unsatisfiable want
+ * row rendered its callout and then a panel of zeroed tiles under it.
  */
 export function hasContent(plan) {
   return plan.blockRows.length > 0
@@ -243,26 +242,43 @@ export function hasContent(plan) {
     || plan.netOutputRows.length > 0
     || plan.supplyUsage.length > 0
     || plan.rawNeeded.length > 0
-    || plan.beltRows.length > 0
-    || (plan.requirements && plan.requirements.hasIssues)
-    || (plan.shortfalls && plan.shortfalls.length > 0);
+    || plan.beltRows.length > 0;
+}
+
+/**
+ * Whether the plan has something to explain: a want row for an item with no
+ * enabled recipe (requirements) or one the LP couldn't fully satisfy
+ * (shortfalls). Either produces zero build rows, so without this the plan would
+ * fail silently behind the "add a block" hint.
+ */
+export function hasDiagnostics(plan) {
+  return Boolean((plan.requirements && plan.requirements.hasIssues)
+    || (plan.shortfalls && plan.shortfalls.length > 0));
 }
 
 export function renderPlan(wrap, dataset, plan) {
   wrap.replaceChildren();
+  // Diagnostics first and unconditionally on hasDiagnostics — matching the
+  // Optimizer's order in render.js, which renders its callouts before the
+  // has-production early return rather than after it.
+  if (hasDiagnostics(plan)) {
+    if (plan.requirements && plan.requirements.hasIssues) wrap.appendChild(renderRequirements(plan.requirements));
+    if (plan.shortfalls && plan.shortfalls.length > 0) wrap.appendChild(renderShortfalls(plan.shortfalls));
+  }
   if (!hasContent(plan)) {
-    const p = el('p', 'hint');
-    p.textContent = 'Add a block — say 6 Assemblers making Motors — and this will work out what has to feed it.';
-    wrap.appendChild(p);
+    // The hint only helps someone who hasn't described anything yet; after a
+    // diagnostic it would talk over the actual explanation.
+    if (!hasDiagnostics(plan)) {
+      const p = el('p', 'hint');
+      p.textContent = 'Add a block — say 6 Assemblers making Motors — and this will work out what has to feed it.';
+      wrap.appendChild(p);
+    }
     return;
   }
-  if (plan.requirements && plan.requirements.hasIssues) {
-    wrap.appendChild(renderRequirements(plan.requirements));
-  }
-  if (plan.shortfalls && plan.shortfalls.length > 0) {
-    wrap.appendChild(renderShortfalls(plan.shortfalls));
-  }
-  wrap.appendChild(renderTilesPanel(plan.tiles));
+  wrap.appendChild(renderTilesPanel(plan.tiles, {
+    machines: 'Machines to build',
+    powerMW: 'Upstream power (MW)',
+  }));
   for (const section of [
     renderBuildTablePanel(plan.buildRows),
     renderMachineTotalsPanel(plan.machineTotals),

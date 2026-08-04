@@ -8,10 +8,10 @@
  * following js/ui/power.js as the lifecycle pattern:
  * clear the container, restore state from localStorage inside try/catch, wire
  * live recompute, and call it once more directly at the end for the initial
- * paint. Task 8 adds the goals panel to this same file.
+ * paint. The goals panel lives in this file too, below the row sections.
  */
 import { createSearchSelect } from './search-select.js';
-import { planExpansion } from '../engine/expansion.js';
+import { planExpansion, normalizeClock } from '../engine/expansion.js';
 import { buildGoalCatalog, evaluateGoals } from '../domain/goals.js';
 import { renderPlan, renderGoals } from './expansion-render.js';
 
@@ -24,6 +24,19 @@ function el(tag, className) {
   if (className) n.className = className;
   return n;
 }
+
+/**
+ * Ceilings on the two numbers that go straight from a text box into the plan.
+ * The engine's shard search is bounded now (js/engine/physical-layer.js), so an
+ * absurd value no longer takes the tab down, but it still produces a nonsense
+ * plan and — because state is persisted — one that comes back on reload. Both
+ * limits sit far past anything a real save can reach: 9999 machines is orders of
+ * magnitude beyond a megabase, and 1e6/min is past any belt in the game. Note
+ * that a `max` attribute does NOT clamp a typed value, so the read has to.
+ */
+const MAX_MACHINES = 9999;
+const MAX_RATE = 1e6;
+const clampTo = (max, value) => Math.min(max, Math.max(0, Number(value) || 0));
 
 /**
  * Delay invoking `fn` until `wait` ms after the last call. js/main.js has its
@@ -50,13 +63,15 @@ export function sanitizeState(raw) {
     if (!r || typeof r !== 'object') continue;
     if (r.kind === 'block') {
       const machines = Number(r.machines);
-      const clock = Number(r.clock);
       if (typeof r.recipeId !== 'string' || !Number.isFinite(machines)) continue;
-      rows.push({ kind: 'block', recipeId: r.recipeId, machines, clock: Number.isFinite(clock) && clock > 0 ? clock : 1 });
+      // Clamped here as well as at the input, so a payload written by an older
+      // build, hand-edited, or copied from someone else can't reintroduce a
+      // value the live inputs would now refuse.
+      rows.push({ kind: 'block', recipeId: r.recipeId, machines: clampTo(MAX_MACHINES, machines), clock: normalizeClock(r.clock) });
     } else if (r.kind === 'want' || r.kind === 'have') {
       const rate = Number(r.rate);
       if (typeof r.itemId !== 'string' || !Number.isFinite(rate)) continue;
-      rows.push({ kind: r.kind, itemId: r.itemId, rate });
+      rows.push({ kind: r.kind, itemId: r.itemId, rate: clampTo(MAX_RATE, rate) });
     }
   }
   const goals = (Array.isArray(raw.goals) ? raw.goals : []).filter((g) => typeof g === 'string');
@@ -148,12 +163,11 @@ function makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange) {
   const machinesLabel = el('span', 'target-row__label');
   machinesLabel.textContent = 'Machines';
   const machinesInput = numberInput({ value: initial?.machines ?? 1, min: 1, step: 1, width: '4rem' });
-  // Belt-and-braces, not the real guard (that's recompute()'s try/catch below):
-  // a block this large has no realistic in-game counterpart, and letting the
-  // LP size an upstream recipe for it is what can overflow physical-layer.js's
-  // shard search (see computeExpansionResult's comment). max doesn't clamp a
-  // typed value — same caveat as clockInput.max above — it's just a nudge.
-  machinesInput.max = '9999';
+  // A hint for the spinner and for form validation only — neither this nor
+  // clockInput.max below clamps a value the user types (or pastes, including
+  // scientific notation like 1e10). The read at the bottom of this function is
+  // what actually enforces MAX_MACHINES.
+  machinesInput.max = String(MAX_MACHINES);
   const clockLabel = el('span', 'target-row__label');
   clockLabel.textContent = 'Clock %';
   const clockInput = numberInput({ value: Math.round((initial?.clock ?? 1) * 100), min: 1, step: 1, width: '4.5rem' });
@@ -183,7 +197,7 @@ function makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange) {
     read: () => ({
       kind: 'block',
       recipeId: picker.getValue(),
-      machines: Math.max(0, Number(machinesInput.value) || 0),
+      machines: clampTo(MAX_MACHINES, machinesInput.value),
       clock: (Number(clockInput.value) || 0) / 100,
     }),
   };
@@ -200,6 +214,7 @@ function makeRateRow(kind, itemOpts, initial, onChange) {
   const label = el('span', 'target-row__label');
   label.textContent = 'Rate /min';
   const rateInput = numberInput({ value: initial?.rate ?? '', min: 0, step: 'any', placeholder: 'rate /min', width: '6rem' });
+  rateInput.max = String(MAX_RATE); // a hint only; the read below is the real clamp
   const removeBtn = el('button');
   removeBtn.type = 'button';
   removeBtn.textContent = 'Remove';
@@ -217,7 +232,7 @@ function makeRateRow(kind, itemOpts, initial, onChange) {
     read: () => ({
       kind,
       itemId: picker.getValue(),
-      rate: Math.max(0, Number(rateInput.value) || 0),
+      rate: clampTo(MAX_RATE, rateInput.value),
     }),
   };
 }
@@ -282,7 +297,12 @@ function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
   const selected = new Set(initial.goals);
   let lastGroup = null;
   for (const g of catalog) {
-    const groupKey = `${g.kind}-${g.order}`;
+    // Milestones group per tier; phases all sit under one heading, so they key on
+    // kind alone — keying them on order too printed "Space Elevator" five times,
+    // once per phase. `kind` stays in the key either way, which is what keeps a
+    // tier-N milestone and Phase N apart: Goal.order is scale-relative to kind,
+    // so both carry order 1.
+    const groupKey = g.kind === 'milestone' ? `milestone-${g.order}` : g.kind;
     if (groupKey !== lastGroup) {
       const heading = el('p', 'exp-goal-group');
       heading.textContent = g.kind === 'milestone' ? `Tier ${g.order}` : 'Space Elevator';
@@ -370,15 +390,20 @@ export function buildExpansion(dataset, container) {
   const enabledRecipeIds = new Set(dataset.recipes.map((r) => r.id));
   const saved = loadState();
 
-  // Unlike the Factory Optimizer (alternates opt-in, base recipes only by
-  // default), this view solves the upstream demand with every alternate
-  // recipe available — there's no picker here, and wiring one to the
-  // Optimizer's own enabled-set is out of scope. Left silent, that choice can
-  // swing the headline ore/machine counts several-fold on a real base (fewer,
-  // more efficient alternate machines vs. more base ones), which matters most
-  // exactly when someone's using this number to decide whether to commit.
+  // Unlike the Factory Optimizer (which enables base recipes only by default —
+  // see inputs.js's `if (!r.alternate)`), this view solves the upstream demand
+  // with every alternate recipe available. There's no picker here, and wiring
+  // one to the Optimizer's own enabled-set is out of scope. Left silent, that
+  // choice can swing the headline numbers on a real base, which matters most
+  // exactly when someone's using them to decide whether to commit.
+  //
+  // The copy deliberately claims less than it's tempting to: the LP minimizes
+  // RAW USAGE (optimize.js's hitTargets), not machines, so unlocking recipes can
+  // only lower the ore floor — machine count is unconstrained and can move
+  // either way. And the Optimizer already starts with alternates off, so telling
+  // the user to switch them off there would describe a step they've already got.
   const altHint = el('p', 'hint');
-  altHint.textContent = "Assumes every alternate recipe is unlocked, which can make the ore and machines below far lower than what base recipes alone would need. Turn alternates off in the Factory Optimizer tab to compare.";
+  altHint.textContent = 'Assumes every alternate recipe is unlocked, so the ore below can be lower than base recipes alone could reach. The Factory Optimizer tab starts with alternates off, if you want that comparison.';
   container.appendChild(altHint);
 
   const grid = el('div', 'exp');
@@ -388,28 +413,35 @@ export function buildExpansion(dataset, container) {
   grid.append(rowsPane, resultsPane);
 
   /**
-   * A throwing plan must not take the whole view down with it — rowsPane (the
+   * A failing plan must not take the whole view down with it — rowsPane (the
    * blocks/want/have/goals sections built below) has to stay mounted and
-   * editable so the bad value can actually be walked back, especially since
-   * saveState() above already persisted it: without this, reloading replays
-   * the same throw with the rows that would fix it gone too. Mirrors
-   * js/main.js's Optimizer recompute(), just against exp-rows/exp-results
-   * instead of #inputs/#results. See computeExpansionResult for what this is
-   * actually guarding against.
+   * editable so the bad value can actually be walked back. Mirrors js/main.js's
+   * Optimizer recompute(), just against exp-rows/exp-results instead of
+   * #inputs/#results.
    */
   function recompute() {
     const rows = [...blockSection.readAll(), ...wantSection.readAll(), ...haveSection.readAll()];
     const goals = goalsSection.getSelectedIds();
     const fillMinutes = goalsSection.getFillMinutes();
+    const result = computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes });
+    if (!result.ok) {
+      // Deliberately not persisted. Saving before the compute meant a value that
+      // killed it was already on disk, so the next page load replayed the same
+      // failure — and buildSecondaryView's error path replaces the entire view,
+      // taking the rows that would fix it along with it. The cost is that an
+      // edit which fails to compute is lost on reload, which is the better half
+      // of that trade: the app always boots.
+      console.error(result.error);
+      renderMessage(resultsPane, `Failed to compute plan: ${result.error?.message ?? String(result.error)}`);
+      return;
+    }
     saveState({ rows, goals, fillMinutes });
     try {
-      const result = computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes });
-      if (!result.ok) throw result.error;
       renderPlan(resultsPane, dataset, result.plan);
       renderGoals(resultsPane, result.goalViews, result.shortfallRows.length, () => addShortfallRows(result.shortfallRows));
     } catch (err) {
       console.error(err);
-      renderMessage(resultsPane, `Failed to compute plan: ${err?.message ?? String(err)}`);
+      renderMessage(resultsPane, `Failed to render plan: ${err?.message ?? String(err)}`);
     }
   }
   const scheduleRecompute = debounce(recompute, 150);

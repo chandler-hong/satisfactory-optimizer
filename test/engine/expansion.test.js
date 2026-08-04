@@ -144,7 +144,7 @@ test('planExpansion: an invalid clock displays and computes as 100%, not the raw
 });
 
 // recipeRates/machinesById feed buildGraph (js/engine/graph.js) for the
-// Expansion view's diagram — added alongside it (see task-9-brief.md). Checked
+// Expansion view's diagram, and were added alongside it. Checked
 // against buildRows rather than hardcoded numbers: buildRows is already
 // exhaustively tested above, so this only needs to confirm the two new fields
 // agree with it and are scoped to the same LP-solved recipes.
@@ -158,10 +158,13 @@ test('planExpansion: recipeRates and machinesById mirror buildRows for the LP-so
   assert.equal(p.recipeRates.has('rip'), false, 'the pinned block itself never enters the LP, so it is not an LP-solved recipe');
 });
 
-// Fix for the diagram bug flagged in task-9-report.md: recipeRates/machinesById
-// are upstream-only (confirmed above), so buildGraph never saw a pinned block's
-// own recipe. graphRates/graphMachinesById add each block's own load/machines
-// on top, for the diagram only.
+// Fixes a diagram bug: recipeRates/machinesById are upstream-only (confirmed
+// above), so buildGraph never saw a pinned block's own recipe — the block's
+// inputs dangled with no consumer and drew as amber "surplus", telling the user
+// a line feeding their own machines was spare capacity. graphRates/
+// graphMachinesById add each block's own load/machines on top, for the diagram
+// only; the upstream-only fields keep their meaning because realize/beltReport
+// depend on it.
 test('planExpansion: graphRates/graphMachinesById include a pinned block even though it never enters the LP', () => {
   const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(p.recipeRates.has('rip'), false, 'sanity: rip itself is still never LP-solved');
@@ -413,7 +416,7 @@ test('rawNeeded: reports the rate and whole miners for a solid', () => {
 // round UP to 3 whole miners (a fraction of a miner cannot be built), not down
 // to 2. This is the one assertion in the suite that discriminates ceil from
 // floor — confirmed by temporarily swapping extractorOptions's Math.ceil for
-// Math.floor and rerunning, which fails only this test (see task-4-report.md).
+// Math.floor and rerunning, which fails only this test.
 test('rawNeeded: a rate that does not divide evenly still rounds up to a whole extractor', () => {
   // 5x ingot -> 150 ore/min, direct block draw (no LP recipes involved).
   const p = plan([{ kind: 'block', recipeId: 'ingot', machines: 5, clock: 1 }]);
@@ -500,6 +503,9 @@ test('planExpansion: normalize(miniRaw) end-to-end exercises output, machines, b
   assert.equal(p.blockRows[0].machines, 2);
   assert.equal(p.blockRows[0].clockPct, 100);
 
+  // Length asserted as well as the three lookups, so a spurious extra row can't
+  // slip past three .find()s that each only check what they asked for.
+  assert.equal(p.netOutputRows.length, 3, 'exactly these three leave the factory');
   const ironIngot = p.netOutputRows.find((r) => r.itemId === 'Desc_IronIngot_C');
   const plastic = p.netOutputRows.find((r) => r.itemId === 'Desc_Plastic_C');
   const residue = p.netOutputRows.find((r) => r.itemId === 'Desc_HeavyOilResidue_C');
