@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pinnedBalance, splitDemand, computeNetOutput, planExpansion } from '../../js/engine/expansion.js';
 import { buildGraph } from '../../js/engine/graph.js';
+import { normalize } from '../../js/data/normalize.js';
 import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
+import { miniRaw } from '../fixtures/mini-data.js';
 
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 const rateOf = (m, id) => r6(m.get(id) || 0);
@@ -470,4 +472,54 @@ test('rawNeeded: water, oil, and nitrogen use their own extractors', () => {
   assert.equal(find('Desc_Water_C').options.find((o) => o.label === 'Water Extractor').count, 2);      // 240/120
   assert.equal(find('Desc_LiquidOil_C').options.find((o) => o.label === 'Oil Extractor · normal').count, 1); // 120/120
   assert.equal(find('Desc_NitrogenGas_C').options.find((o) => o.label === 'Well Satellite · normal').count, 1); // 60/60
+});
+
+// Fix 6: netOutputRows, machineTotals, blockRows, beltRows, tiles.powerMW, and
+// tiles.shards were never exercised anywhere in this file, and no test ran
+// planExpansion over the real normalize() output rather than a hand-built
+// dataset. This drives one plan through normalize(miniRaw): a pinned Iron
+// Ingot block whose output is left entirely unconsumed (disjoint from the
+// rest of the fixture, so it shows up in blockRows AND netOutputRows for
+// free), plus a Plastic want sized to need exactly 1.5 machine-equivalents —
+// the load allocateShards prefers to cover with one overclocked Refinery (1
+// shard) rather than two idle-half machines, so the shard budget actually
+// drives the build instead of sitting unused.
+test('planExpansion: normalize(miniRaw) end-to-end exercises output, machines, belts, and shards', () => {
+  const dataset = normalize(miniRaw);
+  const rows = [
+    { kind: 'block', recipeId: 'Recipe_IngotIron_C', machines: 2, clock: 1 },
+    { kind: 'want', itemId: 'Desc_Plastic_C', rate: 30 },
+  ];
+  const enabledRecipeIds = new Set(['Recipe_IngotIron_C', 'Recipe_Plastic_C']);
+  const p = planExpansion({ dataset, rows, enabledRecipeIds, shardBudget: 1 });
+
+  assert.equal(p.feasible, true);
+
+  assert.equal(p.blockRows.length, 1);
+  assert.equal(p.blockRows[0].recipeId, 'Recipe_IngotIron_C');
+  assert.equal(p.blockRows[0].machines, 2);
+  assert.equal(p.blockRows[0].clockPct, 100);
+
+  const ironIngot = p.netOutputRows.find((r) => r.itemId === 'Desc_IronIngot_C');
+  const plastic = p.netOutputRows.find((r) => r.itemId === 'Desc_Plastic_C');
+  const residue = p.netOutputRows.find((r) => r.itemId === 'Desc_HeavyOilResidue_C');
+  assert.equal(ironIngot?.rate, 60, "the block's Iron Ingot has no consumer, so it leaves at its full produced rate");
+  assert.equal(plastic?.rate, 30, 'the want is fully met, not zero');
+  assert.equal(residue?.rate, 15, 'Heavy Oil Residue is an unconsumed byproduct of the Plastic recipe');
+
+  assert.equal(p.machineTotals.length, 1);
+  assert.equal(p.machineTotals[0].buildingName, 'Refinery');
+  assert.equal(p.machineTotals[0].machines, 1, 'one overclocked Refinery, not two machines at half load');
+
+  assert.equal(p.tiles.machines, 1);
+  assert.equal(p.tiles.shards, 1, 'load 1.5 is machine-minimal as 1 machine + 1 shard, not 2 machines + 0 shards');
+  assert.equal(p.tiles.powerMW, 51.3, '30 base MW * 1.5^1.321928, rounded to one decimal');
+
+  assert.equal(p.beltRows.length, 3);
+  const oil = p.beltRows.find((b) => b.itemId === 'Desc_LiquidOil_C');
+  const plasticBelt = p.beltRows.find((b) => b.itemId === 'Desc_Plastic_C');
+  const residueBelt = p.beltRows.find((b) => b.itemId === 'Desc_HeavyOilResidue_C');
+  assert.equal(oil?.rate, 45, '30 crude oil/min per machine at 100% load * 1.5 machine-equivalents');
+  assert.equal(plasticBelt?.rate, 30);
+  assert.equal(residueBelt?.rate, 15);
 });
