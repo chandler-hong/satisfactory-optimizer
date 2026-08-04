@@ -14,7 +14,7 @@
 
 - **Test command is `npm test`.** Never `node --test test/` — wrong glob, produces spurious failures.
 - **`test/fixtures/mini-data.js` must not be modified.** Other tests assert its exact shape. Reading it is fine. `test/fixtures/iron-chain.js` must also be left alone in this plan — where a test needs a recipe the fixture lacks, build a throwaway dataset **inside the test file** using the pattern already established at `test/engine/expansion.test.js:23-29` (`{ ...ironChain, recipes: [...ironChain.recipes, extra] }`).
-- **Normalized recipe entries are `{ itemId, perMin }`.** There is no `amount`/`timeSec` on a normalized entry — `js/data/normalize.js:55-56` converts per-craft amounts to `perMin` at load. Never recompute a rate from amount and time.
+- **Read rates off `perMin`; never recompute one.** A normalized entry is `{ itemId, perMin, amount }` and the recipe carries `timeSec` (`js/data/normalize.js:54-58`) — `amount` and `timeSec` exist because the Codex displays per-craft figures. They are not the optimizer's units. Any rate arithmetic uses `perMin`.
 - **Layering:** `js/engine/**` and `js/domain/**` are pure and must never import from `js/ui/**`. `js/ui/**` is the only DOM-touching layer.
 - **No `innerHTML`/`outerHTML`/`insertAdjacentHTML`** with dataset-derived strings. Use `textContent`, or `img.src`/`img.alt` property assignment.
 - **No new dependencies.** The repo is zero-dependency by design; `package.json` exists only for the test runner.
