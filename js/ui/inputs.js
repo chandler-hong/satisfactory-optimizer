@@ -1,6 +1,7 @@
 import { capsFromInputs } from '../engine/resource-model.js';
 import { iconUrl } from './icons.js';
 import { createSearchSelect } from './search-select.js';
+import { createAltPicker } from './alt-picker.js';
 
 const MINER_TIERS = ['Mk1', 'Mk2', 'Mk3'];
 const BELT_TIERS = ['Mk1', 'Mk2', 'Mk3', 'Mk4', 'Mk5', 'Mk6'];
@@ -514,102 +515,14 @@ export function buildInputs(dataset, sidebarEl) {
     emitChange();
   });
 
-  // --- Alt recipes (searchable, collapsible, default all-on) --------------
-  const altRecipes = dataset.recipes.filter((r) => r.alternate).sort((a, b) => a.name.localeCompare(b.name));
-  // Alternates are OFF by default — you must unlock them in-game, so a fresh
-  // plan should only assume the base recipes.
-  const altChecked = new Map(altRecipes.map((r) => [r.id, false]));
-
-  const details = el('details');
-  const summary = el('summary');
-  function updateSummary() {
-    const on = [...altChecked.values()].filter(Boolean).length;
-    summary.textContent = `Alternate recipes (${on}/${altRecipes.length} enabled)`;
-  }
-  updateSummary();
-  details.appendChild(summary);
-
-  const altSearch = el('input');
-  altSearch.type = 'search';
-  altSearch.placeholder = 'Filter recipes…';
-  altSearch.style.width = '100%';
-  altSearch.style.boxSizing = 'border-box';
-  altSearch.style.margin = '0.4rem 0';
-  details.appendChild(altSearch);
-
-  const altBulkRow = el('div');
-  altBulkRow.style.display = 'flex';
-  altBulkRow.style.gap = '0.4rem';
-  altBulkRow.style.margin = '0 0 0.5rem';
-  const enableAllBtn = el('button');
-  enableAllBtn.type = 'button';
-  enableAllBtn.textContent = 'Enable all';
-  const disableAllBtn = el('button');
-  disableAllBtn.type = 'button';
-  disableAllBtn.textContent = 'Disable all';
-  altBulkRow.append(enableAllBtn, disableAllBtn);
-  details.appendChild(altBulkRow);
-
-  const altListEl = el('div');
-  altListEl.style.maxHeight = '16rem';
-  altListEl.style.overflowY = 'auto';
-  details.appendChild(altListEl);
-
-  const altRowEntries = altRecipes.map((r) => {
-    // Layout lives in the .alt-row CSS class (not inline) so the filter can
-    // toggle style.display between 'none' and '' and have '' fall back to the
-    // class's `display: flex` — setting inline flex here would revert to the
-    // <label> default `inline` on show, collapsing rows onto shared lines.
-    const label = el('label', 'alt-row');
-    const cb = el('input');
-    cb.type = 'checkbox';
-    cb.checked = false;
-    cb.addEventListener('change', () => {
-      altChecked.set(r.id, cb.checked);
-      updateSummary();
-      emitChange();
-    });
-    label.appendChild(cb);
-    // Icon of the recipe's primary output (dropped silently if it has none).
-    const outSlug = dataset.items.get(r.outputs?.[0]?.itemId)?.slug;
-    const url = iconUrl(outSlug);
-    if (url) {
-      const img = el('img', 'icon');
-      img.loading = 'lazy';
-      img.src = url;
-      img.alt = '';
-      img.onerror = () => img.remove();
-      label.appendChild(img);
-    }
-    const span = el('span');
-    span.textContent = r.name;
-    label.appendChild(span);
-    altListEl.appendChild(label);
-    return { id: r.id, name: r.name, rowEl: label, cb };
+  // --- Alt recipes (searchable, collapsible; OFF by default) ---------------
+  const altPicker = createAltPicker({
+    dataset,
+    onChange: emitChange,
+    warningText: "⚠ Alternate recipes are disabled by default — expand below and enable the ones you've unlocked or want to use.",
   });
-
-  function setAllAlts(value) {
-    for (const entry of altRowEntries) {
-      entry.cb.checked = value;
-      altChecked.set(entry.id, value);
-    }
-    updateSummary();
-    emitChange();
-  }
-  enableAllBtn.addEventListener('click', () => setAllAlts(true));
-  disableAllBtn.addEventListener('click', () => setAllAlts(false));
-
-  altSearch.addEventListener('input', () => {
-    const q = altSearch.value.trim().toLowerCase();
-    for (const entry of altRowEntries) {
-      entry.rowEl.style.display = !q || entry.name.toLowerCase().includes(q) ? '' : 'none';
-    }
-  });
-
-  const altWarning = el('p', 'alt-warning');
-  altWarning.textContent = "⚠ Alternate recipes are disabled by default — expand below and enable the ones you've unlocked or want to use.";
-  sidebarEl.appendChild(altWarning);
-  sidebarEl.appendChild(details);
+  sidebarEl.appendChild(altPicker.warningEl);
+  sidebarEl.appendChild(altPicker.el);
 
   // No Optimize button — the build recomputes live (debounced) on every change.
 
@@ -631,13 +544,7 @@ export function buildInputs(dataset, sidebarEl) {
     maxSection.style.display = '';
     targetsSection.style.display = 'none';
 
-    for (const entry of altRowEntries) {
-      entry.cb.checked = false;
-      entry.rowEl.style.display = '';
-      altChecked.set(entry.id, false);
-    }
-    altSearch.value = '';
-    updateSummary();
+    altPicker.reset();
 
     emitChange();
   }
@@ -656,7 +563,7 @@ export function buildInputs(dataset, sidebarEl) {
       beltTier: beltSelect.value,
       pipeTier: pipeSelect.value,
       noWaste: noWasteInput.checked,
-      altEnabled: altRowEntries.filter((e) => e.cb.checked).map((e) => e.id),
+      altEnabled: [...altPicker.getEnabledIds()],
     };
   }
   function saveState() {
@@ -674,13 +581,7 @@ export function buildInputs(dataset, sidebarEl) {
     if (BELT_TIERS.includes(s.beltTier)) beltSelect.value = s.beltTier;
     if (PIPE_TIERS.includes(s.pipeTier)) pipeSelect.value = s.pipeTier;
     noWasteInput.checked = !!s.noWaste;
-    const on = new Set(s.altEnabled || []);
-    for (const e of altRowEntries) {
-      const en = on.has(e.id);
-      e.cb.checked = en;
-      altChecked.set(e.id, en);
-    }
-    updateSummary();
+    altPicker.setEnabled(s.altEnabled || []);
     const validRes = new Set(resourceOptions.map((o) => o.id));
     const validItem = new Set(allItems.map((o) => o.id));
     for (const rs of s.resources || []) {
@@ -720,10 +621,11 @@ export function buildInputs(dataset, sidebarEl) {
     // adding a Water row. An explicit Water row (with its own cap) overrides.
     if (!caps.has(WATER_ID)) caps.set(WATER_ID, Infinity);
 
+    const enabledAlts = altPicker.getEnabledIds();
     const enabledRecipeIds = new Set();
     for (const r of dataset.recipes) {
       if (!r.alternate) enabledRecipeIds.add(r.id);
-      else if (altChecked.get(r.id)) enabledRecipeIds.add(r.id);
+      else if (enabledAlts.has(r.id)) enabledRecipeIds.add(r.id);
     }
 
     const req = {
@@ -760,12 +662,7 @@ export function buildInputs(dataset, sidebarEl) {
     },
     // Tick an alternate recipe on (from a results-panel suggestion) and recompute.
     enableAlternate(recipeId) {
-      const entry = altRowEntries.find((e) => e.id === recipeId);
-      if (!entry) return;
-      entry.cb.checked = true;
-      altChecked.set(recipeId, true);
-      updateSummary();
-      emitChange();
+      altPicker.enableOne(recipeId);
     },
   };
 }
