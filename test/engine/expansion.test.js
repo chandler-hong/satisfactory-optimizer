@@ -127,6 +127,20 @@ test('planExpansion: one block explodes to whole upstream machines', () => {
   assert.equal(p.tiles.machines, 12);
 });
 
+// Fix 4: a negative clock (typing "-50" into the Clock % box gives clock: -0.5)
+// used to display as -50% in "Your blocks" while the load calculation silently
+// fell back to 100% — the two disagreed. blockLoad and the blockRows view now
+// share one normalizeClock helper, so an invalid clock both displays AND
+// computes as 100%, matching the plan's actual clock:1 baseline above exactly.
+test('planExpansion: an invalid clock displays and computes as 100%, not the raw value', () => {
+  const invalid = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: -0.5 }]);
+  const normal = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  assert.equal(invalid.blockRows.length, 1);
+  assert.equal(invalid.blockRows[0].clockPct, 100, 'a negative clock must not display as -50%');
+  assert.equal(machinesOf(invalid, 'plate'), machinesOf(normal, 'plate'),
+    'the load calc must match what clockPct claims, not silently fall back differently');
+});
+
 // recipeRates/machinesById feed buildGraph (js/engine/graph.js) for the
 // Expansion view's diagram — added alongside it (see task-9-brief.md). Checked
 // against buildRows rather than hardcoded numbers: buildRows is already

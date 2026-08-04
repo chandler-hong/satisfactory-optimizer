@@ -3,10 +3,9 @@
  * table, machine totals, your blocks, net output, supply used, raw needed,
  * belts) built from a planExpansion() result.
  *
- * Split out of expansion.js (see task-7-brief.md Step 3) once the DOM-input
- * half and the result-rendering half together crossed the file's ~380-line
- * guideline — this file is the rendering half; expansion.js keeps state, row
- * factories, and wiring.
+ * Split out of expansion.js once the DOM-input half and the result-rendering
+ * half together crossed the file's ~380-line guideline — this file is the
+ * rendering half; expansion.js keeps state, row factories, and wiring.
  *
  * DOM only — all arithmetic lives in js/engine/expansion.js.
  */

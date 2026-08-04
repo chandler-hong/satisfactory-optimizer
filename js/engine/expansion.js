@@ -34,6 +34,21 @@ function add(map, k, v) {
 }
 
 /**
+ * Effective clock multiplier for a block row's raw `clock` field (1 = 100%):
+ * the value itself when finite and positive, else 1. Single source of truth
+ * for both blockLoad's load calc and blockView's displayed clockPct below —
+ * they used to apply this test slightly differently (blockView's old `||`
+ * check let a negative-but-truthy value like -0.5 survive as itself, so it
+ * showed literally as -50% while the load calc silently fell back to 1/100%)
+ * — so a bad clock value can no longer show one percentage while the plan
+ * computes at another.
+ */
+function normalizeClock(clock) {
+  const n = Number(clock);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/**
  * Resolve a block row to its recipe plus its machine-equivalent load (machines
  * × clock, clock defaulting to 1 when absent/invalid) — null for a stale row
  * whose recipeId isn't in the dataset. Both pinnedBalance and the graph-only
@@ -44,8 +59,7 @@ function blockLoad(byId, b) {
   const recipe = byId.get(b?.recipeId);
   if (!recipe) return null;                      // stale saved row: ignore rather than throw
   const machines = Math.max(0, Number(b.machines) || 0);
-  const clock = Number(b.clock);
-  const load = machines * (Number.isFinite(clock) && clock > 0 ? clock : 1);
+  const load = machines * normalizeClock(b.clock);
   return { recipe, machines, load };
 }
 
@@ -317,11 +331,11 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   for (const rid of recipeRates.keys()) {
     for (const o of byId.get(rid)?.outputs || []) builtItems.add(o.itemId);
   }
-  // DEVIATION FROM BRIEF (see task-3-report.md): scoped to 'have' rows. The
-  // brief's own supplies.map(...) (no filter) surfaces every supply, including
-  // a block's own unconsumed 'pinned' surplus — that's already fully reported
-  // by netOutput, and the brief's own have-row tests assert supplyUsage holds
-  // only the declared (have-kind) row. Left in, the pinned entry breaks 3 tests.
+  // Scoped to 'have' rows, not every supply entry: an unfiltered map would
+  // also surface a block's own unconsumed 'pinned' surplus, which is already
+  // fully reported by netOutput — and the have-row tests below assert
+  // supplyUsage holds only the declared (have-kind) row, so leaving the
+  // pinned entry in breaks 3 of them.
   const supplyUsage = supplies
     .map((s, i) => {
       const used = solved.supplyDrawn[i]?.used ?? 0;
@@ -347,7 +361,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         buildingName: building?.name ?? '',
         buildingSlug: building?.slug,
         machines: Math.max(0, Number(b.machines) || 0),
-        clockPct: Math.floor((Number(b.clock) || 1) * 100 + 1e-6),
+        clockPct: Math.floor(normalizeClock(b.clock) * 100 + 1e-6),
         itemName: outId ? nameOf(dataset, outId) : '',
         itemSlug: outId ? slugOf(dataset, outId) : undefined,
       };

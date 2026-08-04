@@ -4,8 +4,8 @@
  *
  * DOM only — all arithmetic lives in js/engine/expansion.js. The eight report
  * panels are built by expansion-render.js, split out once this file crossed the
- * ~380-line guideline (task-7-brief.md Step 3); this half owns state, row
- * factories, and wiring, following js/ui/power.js as the lifecycle pattern:
+ * ~380-line guideline; this half owns state, row factories, and wiring,
+ * following js/ui/power.js as the lifecycle pattern:
  * clear the container, restore state from localStorage inside try/catch, wire
  * live recompute, and call it once more directly at the end for the initial
  * paint. Task 8 adds the goals panel to this same file.

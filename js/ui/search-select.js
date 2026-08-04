@@ -30,7 +30,8 @@ function el(tag, className) {
  *
  * The dropdown's background/border reuse the existing `--surface`/`--border`
  * custom properties via inline styles rather than adding new rules to
- * css/styles.css, which is out of scope for this task (see task-5-report.md).
+ * css/styles.css, keeping this combobox a single self-contained file instead
+ * of requiring a matching stylesheet change wherever it's reused.
  *
  * @param {{options: {id:string,name:string,slug?:string}[], placeholder?: string, showIcon?: boolean}} opts
  * @returns {{el: HTMLElement, getValue: () => (string|null), setValue: (id: string) => void, onSelect: (cb: (id: string) => void) => void}}
