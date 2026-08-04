@@ -370,6 +370,17 @@ export function buildExpansion(dataset, container) {
   const enabledRecipeIds = new Set(dataset.recipes.map((r) => r.id));
   const saved = loadState();
 
+  // Unlike the Factory Optimizer (alternates opt-in, base recipes only by
+  // default), this view solves the upstream demand with every alternate
+  // recipe available — there's no picker here, and wiring one to the
+  // Optimizer's own enabled-set is out of scope. Left silent, that choice can
+  // swing the headline ore/machine counts several-fold on a real base (fewer,
+  // more efficient alternate machines vs. more base ones), which matters most
+  // exactly when someone's using this number to decide whether to commit.
+  const altHint = el('p', 'hint');
+  altHint.textContent = "Assumes every alternate recipe is unlocked, which can make the ore and machines below far lower than what base recipes alone would need. Turn alternates off in the Factory Optimizer tab to compare.";
+  container.appendChild(altHint);
+
   const grid = el('div', 'exp');
   container.appendChild(grid);
   const rowsPane = el('div', 'exp-rows');
