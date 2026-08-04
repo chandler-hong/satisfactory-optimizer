@@ -1414,3 +1414,96 @@ button.codex-io:focus-visible {
 
 /* Indent to line up under the name, past the 24px icon + 0.5rem gap. */
 .exp-raw-row .hint { margin: 0.3rem 0 0 2rem; }
+
+/* ==========================================================================
+   Goals — HUB milestone / Space Elevator phase progress, both directions
+   ========================================================================== */
+
+.exp-goal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* Stacked single-column layout: Blocks/Want/Have sit above this list in the
+   same pane, so give it less room here. Must follow the rule above — same
+   specificity, so source order decides (the .codex-items trap). */
+@media (max-width: 800px) {
+  .exp-goal-list { max-height: 40vh; }
+}
+
+.exp-goal-group {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+}
+
+.exp-goal-group:first-child { margin-top: 0; }
+
+.exp-goal-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.exp-goal-row:hover { background: var(--surface-2); }
+
+/* .app's checkbox rule doesn't reach here — .expansion-view is a sibling of
+   .app, not a descendant, so goal checkboxes need their own accent styling. */
+.exp-goal-row input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.exp-goal-fill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* Results side: one card per selected goal (label + ETA, then its part list). */
+.exp-goal-card {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-goal-card:last-of-type { border-bottom: none; }
+
+.exp-goal-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.exp-goal-card__label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.exp-goal-card__eta {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* Color alone isn't CVD-distinct, but the text next to this ("not produced")
+   already spells out the state, matching .chip--warning's pattern elsewhere. */
+.exp-goal-part--uncovered { color: var(--warning); }
+
+.exp-goal-add { width: 100%; margin-top: 0.5rem; }

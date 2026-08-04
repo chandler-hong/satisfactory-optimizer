@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeState, DEFAULT_STATE } from '../../js/ui/expansion.js';
+import { sanitizeState, DEFAULT_STATE, uncoveredToRows } from '../../js/ui/expansion.js';
 
 test('sanitizeState: null / garbage falls back to defaults', () => {
   assert.deepEqual(sanitizeState(null), DEFAULT_STATE);
@@ -31,4 +31,20 @@ test('sanitizeState: keeps only string goal ids and a positive fillMinutes', () 
   const s = sanitizeState({ goals: ['a', 7, null, 'b'], fillMinutes: -3 });
   assert.deepEqual(s.goals, ['a', 'b']);
   assert.equal(s.fillMinutes, 10, 'a non-positive horizon falls back to the default');
+});
+
+test('uncoveredToRows: one want row per uncovered part, de-duplicated across goals', () => {
+  const views = [
+    { id: 'g1', uncovered: [{ itemId: 'a', name: 'A', rate: 20 }, { itemId: 'b', name: 'B', rate: 5 }] },
+    { id: 'g2', uncovered: [{ itemId: 'a', name: 'A', rate: 50 }] },
+  ];
+  const rows = uncoveredToRows(views);
+  assert.deepEqual(rows, [
+    { kind: 'want', itemId: 'a', rate: 50 },
+    { kind: 'want', itemId: 'b', rate: 5 },
+  ], 'the same item across two goals takes the higher rate, not the sum');
+});
+
+test('uncoveredToRows: nothing uncovered yields no rows', () => {
+  assert.deepEqual(uncoveredToRows([{ id: 'g', uncovered: [] }]), []);
 });

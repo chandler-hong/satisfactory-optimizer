@@ -273,6 +273,62 @@ function renderBeltsPanel(rows) {
 }
 
 /**
+ * Per-goal progress for the ticked HUB milestones / Space Elevator phases, plus
+ * the "push shortfalls into Want rows" action. Appended straight onto `wrap`
+ * rather than clearing it first: expansion.js's recompute() always calls
+ * renderPlan(wrap, ...) — which does its own replaceChildren() — immediately
+ * before this, so by the time this runs `wrap` already holds exactly the plan
+ * panels and nothing stale from a prior goal selection.
+ *
+ * `shortfallCount` and `onAddShortfalls` are passed in rather than computed
+ * here: the higher-rate-wins dedup (uncoveredToRows) lives in expansion.js, and
+ * this file already goes the other direction (expansion.js imports renderPlan
+ * from here), so importing back from expansion.js would be circular.
+ */
+export function renderGoals(wrap, goalViews, shortfallCount, onAddShortfalls) {
+  if (!goalViews || goalViews.length === 0) return;
+
+  const section = panel('Goals');
+  for (const g of goalViews) {
+    const card = el('div', 'exp-goal-card');
+    const head = el('div', 'exp-goal-card__head');
+    const label = el('span', 'exp-goal-card__label');
+    label.textContent = g.label;
+    head.appendChild(label);
+    const eta = el('span', 'exp-goal-card__eta');
+    eta.textContent = g.etaMinutes == null ? '—' : `~${fmt1(g.etaMinutes)} min`;
+    head.appendChild(eta);
+    card.appendChild(head);
+
+    const list = el('ul', 'belt-list');
+    for (const p of g.parts) {
+      const li = el('li');
+      li.appendChild(icon(p.slug, p.fluid ? 'fluid' : 'item', p.name));
+      const nameSpan = el('span');
+      nameSpan.textContent = `${p.name} ×${p.amount}`;
+      li.appendChild(nameSpan);
+      const statusSpan = p.covered ? el('span') : el('span', 'exp-goal-part--uncovered');
+      statusSpan.textContent = p.covered
+        ? `✓ ${fmt1(p.netRate)}/min → ${fmt1(p.etaMinutes)} min`
+        : '✗ not produced';
+      li.appendChild(statusSpan);
+      list.appendChild(li);
+    }
+    card.appendChild(list);
+    section.appendChild(card);
+  }
+
+  const addBtn = el('button', 'exp-goal-add');
+  addBtn.type = 'button';
+  addBtn.textContent = `Add ${shortfallCount} shortfall${shortfallCount === 1 ? '' : 's'} as WANT rows`;
+  addBtn.disabled = shortfallCount === 0;
+  addBtn.addEventListener('click', onAddShortfalls);
+  section.appendChild(addBtn);
+
+  wrap.appendChild(section);
+}
+
+/**
  * Whether there's anything to show at all. Deliberately NOT `plan.hasPlan`:
  * that flag is computed by planExpansion from pre-validation row counts (any
  * row tagged kind:'block'/'want', even one whose picker was never given a

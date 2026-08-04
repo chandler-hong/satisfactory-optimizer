@@ -12,7 +12,8 @@
  */
 import { createSearchSelect } from './search-select.js';
 import { planExpansion } from '../engine/expansion.js';
-import { renderPlan } from './expansion-render.js';
+import { buildGoalCatalog, evaluateGoals } from '../domain/goals.js';
+import { renderPlan, renderGoals } from './expansion-render.js';
 
 const STATE_KEY = 'sat-optimizer:expansion:v1';
 const DEFAULT_FILL_MINUTES = 10;
@@ -70,6 +71,22 @@ function loadState() {
 
 function saveState(state) {
   try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch { /* storage unavailable: session-only */ }
+}
+
+/**
+ * Want rows for every part the selected goals still need. Where two goals want the
+ * same part, the higher rate wins rather than the sum: the rates are independent
+ * "deliver this much within the horizon" figures, and adding them would size the
+ * factory for delivering both goals simultaneously, which isn't what was asked.
+ */
+export function uncoveredToRows(goalViews) {
+  const best = new Map();
+  for (const v of goalViews || []) {
+    for (const u of v.uncovered || []) {
+      if (!best.has(u.itemId) || u.rate > best.get(u.itemId)) best.set(u.itemId, u.rate);
+    }
+  }
+  return [...best].map(([itemId, rate]) => ({ kind: 'want', itemId, rate }));
 }
 
 function numberInput({ value = 0, min = 0, step = 1, placeholder, width = '4.5rem' } = {}) {
@@ -240,10 +257,70 @@ function buildRowSection(parent, heading, hint, addLabel, makeRow, scheduleRecom
 }
 
 /**
+ * The goals checkbox list (milestones grouped by tier, then the Space Elevator
+ * phases) plus the "fill in [N] min" horizon input. `catalog` arrives already
+ * in the right order — all milestones by tier, then all phases — because
+ * `order` is only comparable within a `kind` (a tier-1 milestone and Phase 1
+ * both carry `order: 1`), so this groups by walking that order and starting a
+ * new heading whenever (kind, order) changes, rather than re-sorting.
+ */
+function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
+  parent.appendChild(sectionHeading('Goals'));
+  const hint = el('p', 'hint');
+  hint.textContent = 'Tick a HUB milestone or Space Elevator phase to check your plan against its cost.';
+  parent.appendChild(hint);
+
+  const listEl = el('div', 'exp-goal-list');
+  parent.appendChild(listEl);
+
+  const selected = new Set(initial.goals);
+  let lastGroup = null;
+  for (const g of catalog) {
+    const groupKey = `${g.kind}-${g.order}`;
+    if (groupKey !== lastGroup) {
+      const heading = el('p', 'exp-goal-group');
+      heading.textContent = g.kind === 'milestone' ? `Tier ${g.order}` : 'Space Elevator';
+      listEl.appendChild(heading);
+      lastGroup = groupKey;
+    }
+    const row = el('label', 'exp-goal-row');
+    const checkbox = el('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = selected.has(g.id);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selected.add(g.id);
+      else selected.delete(g.id);
+      scheduleRecompute();
+    });
+    row.appendChild(checkbox);
+    const label = el('span');
+    label.textContent = g.label;
+    row.appendChild(label);
+    listEl.appendChild(row);
+  }
+
+  const fillRow = el('div', 'exp-goal-fill');
+  const fillLabel = el('span', 'target-row__label');
+  fillLabel.textContent = 'fill in';
+  const fillInput = numberInput({ value: initial.fillMinutes, min: 1, step: 1, width: '4rem' });
+  const fillSuffix = el('span', 'target-row__label');
+  fillSuffix.textContent = 'min';
+  fillRow.append(fillLabel, fillInput, fillSuffix);
+  fillInput.addEventListener('input', scheduleRecompute);
+  parent.appendChild(fillRow);
+
+  return {
+    getSelectedIds: () => [...selected],
+    getFillMinutes: () => Math.max(1, Number(fillInput.value) || 1),
+  };
+}
+
+/**
  * Build the Expansion view into `container`: a rows panel (blocks / want /
- * have) on the left, the plan report on the right. `enabledRecipeIds` is every
- * recipe — the Optimizer's alternate-recipe checkboxes are that view's own
- * state, and sharing them across views is out of scope here.
+ * have / goals) on the left, the plan + goals report on the right.
+ * `enabledRecipeIds` is every recipe — the Optimizer's alternate-recipe
+ * checkboxes are that view's own state, and sharing them across views is out
+ * of scope here.
  */
 export function buildExpansion(dataset, container) {
   container.replaceChildren();
@@ -262,11 +339,32 @@ export function buildExpansion(dataset, container) {
 
   function recompute() {
     const rows = [...blockSection.readAll(), ...wantSection.readAll(), ...haveSection.readAll()];
-    saveState({ ...saved, rows });
+    const goals = goalsSection.getSelectedIds();
+    const fillMinutes = goalsSection.getFillMinutes();
+    saveState({ rows, goals, fillMinutes });
     const plan = planExpansion({ dataset, rows, enabledRecipeIds });
     renderPlan(resultsPane, dataset, plan);
+    const goalViews = evaluateGoals(catalog, goals, plan.netOutput, fillMinutes);
+    const shortfallRows = uncoveredToRows(goalViews);
+    renderGoals(resultsPane, goalViews, shortfallRows.length, () => addShortfallRows(shortfallRows));
   }
   const scheduleRecompute = debounce(recompute, 150);
+
+  /**
+   * Turn each shortfall row into a new Want row, skipping any item that
+   * already has one so the button never silently doubles a rate the user
+   * already set. A discrete click rather than a stream of input events, so
+   * this recomputes right away instead of going through the debounce.
+   */
+  function addShortfallRows(rows) {
+    const existing = new Set(wantSection.readAll().map((r) => r.itemId).filter(Boolean));
+    for (const row of rows) {
+      if (existing.has(row.itemId)) continue;
+      wantSection.addRow({ itemId: row.itemId, rate: row.rate });
+      existing.add(row.itemId);
+    }
+    recompute();
+  }
 
   const blockSection = buildRowSection(
     rowsPane,
@@ -292,11 +390,21 @@ export function buildExpansion(dataset, container) {
     (initial, onChange) => makeRateRow('have', itemOpts, initial, onChange),
     scheduleRecompute,
   );
+  const catalog = buildGoalCatalog(dataset);
+  const catalogIds = new Set(catalog.map((g) => g.id));
+  const goalsSection = buildGoalsSection(
+    rowsPane,
+    catalog,
+    { goals: saved.goals.filter((id) => catalogIds.has(id)), fillMinutes: saved.fillMinutes },
+    scheduleRecompute,
+  );
 
   // Restore saved rows without firing change events; recompute() below paints
   // once at the end. An id from a since-removed recipe/item degrades to an
   // unselected picker (rather than skipping the row and losing its other
-  // fields) instead of throwing, mirroring buildInputs' restoreState.
+  // fields) instead of throwing, mirroring buildInputs' restoreState. Goals
+  // need no such loop: buildGoalsSection above already built each checkbox's
+  // initial `checked` state directly from the (already-filtered) saved list.
   const recipeIds = new Set(recipeOpts.map((o) => o.id));
   const itemIds = new Set(itemOpts.map((o) => o.id));
   for (const r of saved.rows) {
