@@ -30,29 +30,29 @@ const planOre = (rows) => planExpansion({
 
 test('pinnedBalance: nets a block at its machine count', () => {
   // rip: 30 plate + 60 screw -> 5 rip, per machine
-  const net = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const net = pinnedBalance(ironChain, [{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(rateOf(net, 'plate'), -60);
   assert.equal(rateOf(net, 'screw'), -120);
   assert.equal(rateOf(net, 'rip'), 10);
 });
 
 test('pinnedBalance: clock scales the load — 4 @150% equals 6 @100%', () => {
-  const fast = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'rip', machines: 4, clock: 1.5 }]);
-  const many = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'rip', machines: 6, clock: 1 }]);
+  const fast = pinnedBalance(ironChain, [{ kind: 'block', built: false, recipeId: 'rip', machines: 4, clock: 1.5 }]);
+  const many = pinnedBalance(ironChain, [{ kind: 'block', built: false, recipeId: 'rip', machines: 6, clock: 1 }]);
   assert.deepEqual([...fast].sort(), [...many].sort());
   assert.equal(rateOf(fast, 'plate'), -180);
 });
 
 test('pinnedBalance: an unknown recipeId is ignored, not thrown', () => {
   const net = pinnedBalance(ironChain, [
-    { kind: 'block', recipeId: 'no_such_recipe', machines: 3, clock: 1 },
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'no_such_recipe', machines: 3, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
   ]);
   assert.equal(rateOf(net, 'plate'), -60, 'the surviving block still counts');
 });
 
 test('splitDemand: negative non-raw becomes a target, positive becomes pinned supply', () => {
-  const net = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const net = pinnedBalance(ironChain, [{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   const { targets, supplies, rawDemand } = splitDemand(ironChain, net, [], []);
   assert.equal(rateOf(targets, 'plate'), 60);
   assert.equal(rateOf(targets, 'screw'), 120);
@@ -63,7 +63,7 @@ test('splitDemand: negative non-raw becomes a target, positive becomes pinned su
 // A block eating ore has no upstream to build. Routed through the LP it would be
 // silently absorbed by the ore constraint and vanish from the raw footer.
 test('splitDemand: a block consuming a raw goes to rawDemand, not to the LP', () => {
-  const net = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'ingot', machines: 1, clock: 1 }]);
+  const net = pinnedBalance(ironChain, [{ kind: 'block', built: false, recipeId: 'ingot', machines: 1, clock: 1 }]);
   const { targets, supplies, rawDemand } = splitDemand(ironChain, net, [], []);
   assert.equal(targets.size, 0);
   assert.equal(rateOf(rawDemand, 'ore'), 30);
@@ -120,7 +120,7 @@ test('splitDemand: two raw HAVE rows for the same item still sum into rawSupplie
 });
 
 test('planExpansion: one block explodes to whole upstream machines', () => {
-  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(p.feasible, true);
   assert.equal(machinesOf(p, 'plate'), 3);
   assert.equal(machinesOf(p, 'screw'), 3);
@@ -135,8 +135,8 @@ test('planExpansion: one block explodes to whole upstream machines', () => {
 // share one normalizeClock helper, so an invalid clock both displays AND
 // computes as 100%, matching the plan's actual clock:1 baseline above exactly.
 test('planExpansion: an invalid clock displays and computes as 100%, not the raw value', () => {
-  const invalid = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: -0.5 }]);
-  const normal = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const invalid = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: -0.5 }]);
+  const normal = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(invalid.blockRows.length, 1);
   assert.equal(invalid.blockRows[0].clockPct, 100, 'a negative clock must not display as -50%');
   assert.equal(machinesOf(invalid, 'plate'), machinesOf(normal, 'plate'),
@@ -149,7 +149,7 @@ test('planExpansion: an invalid clock displays and computes as 100%, not the raw
 // exhaustively tested above, so this only needs to confirm the two new fields
 // agree with it and are scoped to the same LP-solved recipes.
 test('planExpansion: recipeRates and machinesById mirror buildRows for the LP-solved recipes', () => {
-  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.ok(p.buildRows.length > 0, 'sanity: this scenario does build upstream machines');
   for (const row of p.buildRows) {
     assert.equal(p.machinesById.get(row.recipeId), row.machines, `machinesById must agree with buildRows for ${row.recipeId}`);
@@ -166,7 +166,7 @@ test('planExpansion: recipeRates and machinesById mirror buildRows for the LP-so
 // only; the upstream-only fields keep their meaning because realize/beltReport
 // depend on it.
 test('planExpansion: graphRates/graphMachinesById include a pinned block even though it never enters the LP', () => {
-  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(p.recipeRates.has('rip'), false, 'sanity: rip itself is still never LP-solved');
   assert.equal(rateOf(p.graphRates, 'rip'), 2, "the block's own machine-equivalent load (2 machines @ 100%)");
   assert.equal(p.graphMachinesById.get('rip'), 2, "the block's own declared machine count");
@@ -179,8 +179,8 @@ test('planExpansion: graphRates/graphMachinesById include a pinned block even th
 // one side clobber the other.
 test('planExpansion: graphRates/graphMachinesById sum a block and the LP for the same recipe rather than overwrite', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
-    { kind: 'block', recipeId: 'plate', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'plate', machines: 2, clock: 1 },
   ]);
   const lpRate = p.recipeRates.get('plate') || 0;
   const lpMachines = p.machinesById.get('plate') || 0;
@@ -199,7 +199,7 @@ test('planExpansion: graphRates/graphMachinesById sum a block and the LP for the
 // node and makes it plate/screw's in-graph consumer, netting their leftover to
 // ~0 so neither shows as surplus.
 test('planExpansion: the diagram graph shows a pinned block\'s own recipe, and its direct inputs are not false surplus', () => {
-  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()]);
   assert.ok(graph.nodes.some((n) => n.id === 'rip'), "the pinned block's own recipe must be a node in the diagram");
   assert.ok(!graph.nodes.some((n) => n.itemId === 'plate' && n.isSurplus), 'plate now feeds the block in-graph, not spare capacity');
@@ -208,8 +208,8 @@ test('planExpansion: the diagram graph shows a pinned block\'s own recipe, and i
 
 test('planExpansion: a block feeding another needs no upstream for the intermediate', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
-    { kind: 'block', recipeId: 'plate', machines: 3, clock: 1 },  // exactly the 60 plate/min rip wants
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'plate', machines: 3, clock: 1 },  // exactly the 60 plate/min rip wants
   ]);
   assert.equal(machinesOf(p, 'plate'), 0, 'plate nets to zero, so nothing upstream builds it');
   assert.equal(machinesOf(p, 'ingot'), 4, 'but the plate block itself now needs ingot');
@@ -218,8 +218,8 @@ test('planExpansion: a block feeding another needs no upstream for the intermedi
 
 test('planExpansion: a block partly feeding another covers only the deficit', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
-    { kind: 'block', recipeId: 'plate', machines: 2, clock: 1 },  // 40 of the 60 plate/min
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'plate', machines: 2, clock: 1 },  // 40 of the 60 plate/min
   ]);
   assert.equal(machinesOf(p, 'plate'), 1, 'one more plate machine covers the missing 20/min');
   assert.equal(p.tiles.machines, 10);
@@ -230,7 +230,7 @@ test('planExpansion: a block partly feeding another covers only the deficit', ()
 // nothing exercised rawUsage with both sources active at once.
 test('planExpansion: rawUsage combines a direct block draw with a separate LP residual draw', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'ingot', machines: 1, clock: 1 },  // 30 ore/min, direct
+    { kind: 'block', built: false, recipeId: 'ingot', machines: 1, clock: 1 },  // 30 ore/min, direct
     { kind: 'want', itemId: 'plate', rate: 40 },                   // needs 60 ingot/min total
   ]);
   // The block's 30 ingot/min covers half of the want; the LP builds its own
@@ -245,7 +245,7 @@ test('planExpansion: rawUsage combines a direct block draw with a separate LP re
 // supply entry and rawUsage stayed at the full 80.
 test('planExpansion: a block netting a raw surplus credits rawUsage instead of vanishing', () => {
   const p = planOre([
-    { kind: 'block', recipeId: 'oreMaker', machines: 10, clock: 1 },  // +50 ore/min
+    { kind: 'block', built: false, recipeId: 'oreMaker', machines: 10, clock: 1 },  // +50 ore/min
     { kind: 'want', itemId: 'ore', rate: 80 },
   ]);
   assert.equal(rawFor(p, 'ore').needed, 30, '80 wanted minus the 50 the block already makes');
@@ -253,7 +253,7 @@ test('planExpansion: a block netting a raw surplus credits rawUsage instead of v
 
 test('planExpansion: rawUsage never goes negative when a raw credit exceeds demand', () => {
   const p = planOre([
-    { kind: 'block', recipeId: 'oreMaker', machines: 20, clock: 1 },  // +100 ore/min
+    { kind: 'block', built: false, recipeId: 'oreMaker', machines: 20, clock: 1 },  // +100 ore/min
     { kind: 'want', itemId: 'ore', rate: 30 },
   ]);
   assert.equal(rateOf(p.rawUsage, 'ore'), 0, 'a surplus bigger than demand is not a negative need');
@@ -261,7 +261,7 @@ test('planExpansion: rawUsage never goes negative when a raw credit exceeds dema
 
 test('planExpansion: a have row covering demand removes that whole subtree', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'screw', rate: 120 },
   ]);
   assert.equal(machinesOf(p, 'screw'), 0);
@@ -272,7 +272,7 @@ test('planExpansion: a have row covering demand removes that whole subtree', () 
 
 test('planExpansion: a have row partly covering demand flags the overflow', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'screw', rate: 60 },
   ]);
   assert.equal(machinesOf(p, 'screw'), 2, 'ceil(1.5) whole machines');
@@ -281,7 +281,7 @@ test('planExpansion: a have row partly covering demand flags the overflow', () =
 
 test('planExpansion: a have row larger than demand is not flagged', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'screw', rate: 300 },
   ]);
   assert.deepEqual(p.supplyUsage, [{ itemId: 'screw', kind: 'have', rate: 300, used: 120, capped: false }]);
@@ -295,11 +295,11 @@ test('planExpansion: a have row larger than demand is not flagged', () => {
 // the player used to declare it.
 test('planExpansion: one HAVE row and two HAVE rows summing to the same total plan identically', () => {
   const one = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'screw', rate: 120 },
   ]);
   const two = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'screw', rate: 60 },
     { kind: 'have', itemId: 'screw', rate: 60 },
   ]);
@@ -309,7 +309,7 @@ test('planExpansion: one HAVE row and two HAVE rows summing to the same total pl
 });
 
 test('computeNetOutput: an unconsumed block output leaves at its full rate', () => {
-  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   assert.equal(rateOf(p.netOutput, 'rip'), 10);
   assert.equal(rateOf(p.netOutput, 'plate'), 0, 'plate is fully consumed internally');
 });
@@ -318,8 +318,8 @@ test('computeNetOutput: an unconsumed block output leaves at its full rate', () 
 // negative term in netFromLPRecipes, so subtracting the drawn supply too gives 70.
 test('computeNetOutput: a block surplus partly eaten upstream reports the remainder', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },   // wants 120 screw
-    { kind: 'block', recipeId: 'rod', machines: 10, clock: 1 },  // makes 150 rod
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },   // wants 120 screw
+    { kind: 'block', built: false, recipeId: 'rod', machines: 10, clock: 1 },  // makes 150 rod
   ]);
   // screw machines (3) consume 30 rod; 150 - 30 = 120 rod leaves.
   assert.equal(rateOf(p.netOutput, 'rod'), 120);
@@ -328,7 +328,7 @@ test('computeNetOutput: a block surplus partly eaten upstream reports the remain
 
 test('computeNetOutput: a block surplus counts toward a larger want rather than against it', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },  // makes 80 screw, eats 20 rod
+    { kind: 'block', built: false, recipeId: 'screw', machines: 2, clock: 1 },  // makes 80 screw, eats 20 rod
     { kind: 'want', itemId: 'screw', rate: 200 },
   ]);
   assert.equal(rateOf(p.netOutput, 'screw'), 200, 'not 120 — the 80 surplus is part of the 200');
@@ -346,7 +346,7 @@ test('computeNetOutput: a block surplus counts toward a larger want rather than 
 // surplus, so the have-credit's contribution is the only way to reach 100.
 test('computeNetOutput: the have-credit term is visible when a want exceeds the surplus it sits on top of', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },  // +80 screw surplus
+    { kind: 'block', built: false, recipeId: 'screw', machines: 2, clock: 1 },  // +80 screw surplus
     { kind: 'want', itemId: 'screw', rate: 100 },                   // 20 short of the want
     { kind: 'have', itemId: 'screw', rate: 50 },                    // covers the 20 gap, with room to spare
   ]);
@@ -399,7 +399,7 @@ test('planExpansion: no rows yields empty recipeRates and machinesById maps', ()
 
 test('rawNeeded: reports the rate and whole miners for a solid', () => {
   // 2x rip -> 120 ore/min (verified in the one-block test above).
-  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
   const ore = rawFor(p, 'ore');
   assert.equal(ore.needed, 120);
   assert.equal(ore.supplied, 0);
@@ -419,7 +419,7 @@ test('rawNeeded: reports the rate and whole miners for a solid', () => {
 // Math.floor and rerunning, which fails only this test.
 test('rawNeeded: a rate that does not divide evenly still rounds up to a whole extractor', () => {
   // 5x ingot -> 150 ore/min, direct block draw (no LP recipes involved).
-  const p = plan([{ kind: 'block', recipeId: 'ingot', machines: 5, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'ingot', machines: 5, clock: 1 }]);
   const ore = rawFor(p, 'ore');
   assert.equal(ore.needed, 150);
   assert.equal(ore.options.find((o) => o.label === 'Miner Mk.1 · normal').count, 3,
@@ -428,7 +428,7 @@ test('rawNeeded: a rate that does not divide evenly still rounds up to a whole e
 
 test('rawNeeded: a raw have row is netted off, not shown as supply usage', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'ore', rate: 60 },
   ]);
   const ore = rawFor(p, 'ore');
@@ -441,7 +441,7 @@ test('rawNeeded: a raw have row is netted off, not shown as supply usage', () =>
 
 test('rawNeeded: a raw have row covering everything needs no new extraction', () => {
   const p = plan([
-    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
     { kind: 'have', itemId: 'ore', rate: 500 },
   ]);
   const ore = rawFor(p, 'ore');
@@ -450,7 +450,7 @@ test('rawNeeded: a raw have row covering everything needs no new extraction', ()
 });
 
 test('rawNeeded: a block eating ore directly still reaches the footer', () => {
-  const p = plan([{ kind: 'block', recipeId: 'ingot', machines: 3, clock: 1 }]);
+  const p = plan([{ kind: 'block', built: false, recipeId: 'ingot', machines: 3, clock: 1 }]);
   assert.equal(p.tiles.machines, 0, 'nothing upstream to build');
   assert.equal(rawFor(p, 'ore').needed, 90);
 });
@@ -490,7 +490,7 @@ test('rawNeeded: water, oil, and nitrogen use their own extractors', () => {
 test('planExpansion: normalize(miniRaw) end-to-end exercises output, machines, belts, and shards', () => {
   const dataset = normalize(miniRaw);
   const rows = [
-    { kind: 'block', recipeId: 'Recipe_IngotIron_C', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'Recipe_IngotIron_C', machines: 2, clock: 1 },
     { kind: 'want', itemId: 'Desc_Plastic_C', rate: 30 },
   ];
   const enabledRecipeIds = new Set(['Recipe_IngotIron_C', 'Recipe_Plastic_C']);
