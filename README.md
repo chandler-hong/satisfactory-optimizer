@@ -27,6 +27,21 @@ stack size and sink points, every recipe that makes it and every recipe that use
 per-craft amounts, the building, and craft time), and how each recipe is unlocked (tier
 milestone, MAM research, or hard drive). Click any ingredient to jump to its own entry.
 
+**Expansion:** planning in the other direction — instead of "what can my ore make?", start
+from what you've *decided to build*. Declare your blocks (6× Assembler making Motors, at
+whatever clock), any flat extra demand, and whatever is already on your bus, and it works
+out the upstream: what to build to feed it, the machine totals, the net output leaving the
+factory, how much of your existing supply gets used (and whether it runs out), the raw
+rates with whole miner counts per tier and purity, belts/pipes, power, and a factory
+diagram. Tick a HUB milestone or Space Elevator phase and it checks the plan against that
+goal's cost, showing what's still uncovered and roughly how long the plan takes to fill it —
+with a one-click button to turn the gaps into demand rows.
+
+Two things to know about the Expansion view: it assumes **every alternate recipe is
+unlocked** (there's no picker there yet, so it can prescribe a recipe you don't have — the
+Factory Optimizer starts with alternates off if you want that comparison), and it uses the
+default belt tier rather than the Optimizer's sidebar setting, so line counts assume Mk.4.
+
 ## Run the app
 
 ES modules + `fetch` need HTTP (not `file://`), so serve the folder:
@@ -37,10 +52,11 @@ python3 -m http.server 8000
 ```
 
 Add one or more resources (e.g. Iron Ore, Mk.2 miner, 2 normal nodes), pick a target part,
-and the build updates live. The tabs across the top switch between the three views —
-**Factory Optimizer**, **Power Generation**, and **Codex**. Toggle dark/light with the theme
-button. The recipe dataset is fetched once from a pinned community source and cached in
-`localStorage`.
+and the build updates live. The tabs across the top switch between the four views —
+**Factory Optimizer**, **Power Generation**, **Codex**, and **Expansion**. Toggle dark/light
+with the theme button. The recipe dataset is fetched once from a pinned community source and
+cached in `localStorage`; the Expansion view also saves your blocks and goals there, so they
+survive a reload.
 
 ## Tests
 
@@ -49,8 +65,12 @@ npm test
 ```
 
 (`npm test` is scoped to `test/**/*.test.js`, so fixtures/helpers under `test/` aren't run
-as tests. The engine — data, LP, physical/shard and belt layers, plus the UI view-model and
-the Codex model — is unit-tested; the DOM is verified by running the app.)
+as tests. The engine — data, LP, physical/shard and belt layers, the expansion planner and
+goal scoring, plus the UI view-model and the Codex model — is unit-tested.
+
+The rendering layer is not: there's no DOM shim in the suite, so `js/ui/**` is covered only
+through its pure exports and the actual DOM is verified by running the app. Worth knowing
+when changing a renderer — a deleted `appendChild` there won't fail anything.)
 
 ## Tech
 

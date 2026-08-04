@@ -333,3 +333,26 @@ verified via a headless screenshot. Deferred:
   navigation; the target dropdown caps at 50 matches; a manual rate override doesn't visually
   disable the count fields it supersedes.
 - **URL-state sharing**; **variable-power accurate power** (carried from §20).
+
+## 22. Cross-cutting backlog (raised by the Expansion view's final review, 2026-08-04)
+
+The app now has four views: Factory Optimizer, Power Generation, Codex, and Expansion
+(designed in `2026-08-03-factory-expansion-mode-design.md`; its own deferred list is that
+spec's §13.1). These items are whole-app, not Expansion-specific:
+
+- **No DOM shim in the test suite.** Every `js/ui/**` test exercises only pure exports, so
+  `renderResults` (Optimizer), `renderPlan` (Expansion) and both views' `recompute` have no
+  direct coverage — a deleted `appendChild` inside a renderer passes CI. This was found the
+  hard way: the final review deleted two shipped fixes and the suite stayed green. A minimal
+  hand-rolled `document` shim (the repo takes no dependencies) would pin all of it, and is
+  the highest-value test work outstanding.
+- **Unclamped numeric inputs in the Optimizer sidebar.** `readCount` (node counts), the
+  target-rate read, and the shard-budget box accept any magnitude, and `emitChange` persists
+  before recomputing. The engine no longer allocates proportionally to those values — both
+  `recipeOptions` and `allocateShards` are bounded now, which is what removed the renderer-OOM
+  class — so this is no longer a crash, but an absurd value still yields an absurd plan and a
+  saved payload that reads as real. The Expansion view clamps at the read and in
+  `sanitizeState`; the Optimizer should do the same.
+- **`saveState`/`emitChange` ordering.** The Expansion view now persists only after a
+  successful compute, so a value that kills the compute can't be replayed at boot. The
+  Optimizer's `emitChange` still saves first.

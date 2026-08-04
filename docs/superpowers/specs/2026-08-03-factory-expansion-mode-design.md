@@ -536,3 +536,23 @@ Anchor cases:
 - URL state / deep links (existing whole-app backlog item).
 - Variable-power buildings still under-report power (existing `physical-layer.js`
   limitation, inherited unchanged).
+
+### 13.1 Raised by the final review, deliberately not built
+
+- **An alternates picker for this view.** The LP here solves with every alternate
+  unlocked, which can prescribe a recipe the player doesn't have. Shipped with a
+  disclosure hint instead; a real picker (per-alternate enable/disable, mirroring
+  the Optimizer sidebar, or reading the Optimizer's own enabled set) is a feature,
+  not a patch.
+- **Shard-budget, belt-tier and pipe-tier controls for this view.** `planExpansion`
+  is called without them, so the engine defaults hold permanently: the SHARDS tile
+  and the To-build table's Shards column are always 0, and belt line counts always
+  assume Mk4 regardless of what the Optimizer sidebar is set to. Spec-consistent,
+  but the belt counts are quietly wrong for a Mk1 or Mk6 player.
+- **Direct test coverage for the render layer.** There is no DOM shim anywhere in
+  the suite, so every `js/ui/**` test exercises only pure exports. That means
+  `renderPlan`, `renderResults` and `recompute` have no direct coverage, and a
+  deletion inside them can pass CI — which is how the final review found two fixes
+  that were reintroducible while green. A minimal hand-rolled `document` shim (the
+  repo takes no dependencies) would pin all three, and is the single highest-value
+  test investment left.
