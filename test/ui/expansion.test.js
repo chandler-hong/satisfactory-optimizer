@@ -28,6 +28,25 @@ test('sanitizeState: coerces numbers and drops non-numeric rates', () => {
   assert.deepEqual(s.rows[1], { kind: 'have', itemId: 'b', rate: 300 });
 });
 
+/**
+ * State outlives the code that wrote it, so the clamp can't live only at the
+ * input. A payload from an older build, hand-edited, or pasted from someone else
+ * has to come back inside the same bounds the live inputs enforce — otherwise a
+ * value the UI would now refuse gets replayed straight into the plan at boot.
+ */
+test('sanitizeState: clamps magnitudes a stored payload could still carry', () => {
+  const s = sanitizeState({ rows: [
+    { kind: 'block', recipeId: 'r', machines: 1e12, clock: 1 },
+    { kind: 'want', itemId: 'a', rate: 1e10 },
+    { kind: 'have', itemId: 'b', rate: -5 },
+    { kind: 'block', recipeId: 'r2', machines: 3, clock: -0.5 },
+  ] });
+  assert.equal(s.rows[0].machines, 9999, 'machines clamp to MAX_MACHINES');
+  assert.equal(s.rows[1].rate, 1e6, 'rates clamp to MAX_RATE');
+  assert.equal(s.rows[2].rate, 0, 'a negative rate floors at 0');
+  assert.equal(s.rows[3].clock, 1, 'and an invalid clock normalizes to 100%, same as the engine');
+});
+
 test('sanitizeState: keeps only string goal ids and a positive fillMinutes', () => {
   const s = sanitizeState({ goals: ['a', 7, null, 'b'], fillMinutes: -3 });
   assert.deepEqual(s.goals, ['a', 'b']);
@@ -66,20 +85,18 @@ test('computeExpansionResult: ok:true with a plan/goalViews/shortfallRows for a 
 });
 
 /**
- * Pins the real bug behind Fix 1: a want rate big enough that the LP sizes
- * `rod`'s load past what physical-layer.js's allocateShards can handle blows
- * up with RangeError: Maximum call stack size exceeded (its shard search
- * spreads one options array per recipe into Math.max — see recipeOptions /
- * allocateShards in js/engine/physical-layer.js). This is the same class of
- * crash a large block-machines count or an extreme want rate can trigger
- * through the real dataset; reproduced here against the tiny iron-chain
- * fixture, at a rate rate that's already unreachable through any realistic
- * base/have/want combination, purely to force the LP to size `rod` that big.
- * computeExpansionResult must catch it and report `{ ok: false }` rather than
- * letting it propagate — that's what keeps recompute() (js/ui/expansion.js)
- * from wiping the rows pane the way buildSecondaryView's error path would.
+ * A want rate this size used to blow up: the LP sized `rod`'s load past what
+ * physical-layer.js's allocateShards could handle and it threw RangeError
+ * (recipeOptions built one candidate object per integer machine count, and
+ * allocateShards spread that array into Math.max). recipeOptions is bounded to
+ * one candidate per shard level now, so the load no longer drives the
+ * allocation size and this solves cleanly instead of throwing.
+ *
+ * Kept as a regression guard at the UI boundary: this rate is unreachable
+ * through any realistic base/have/want combination, so if it ever throws again
+ * something has reintroduced a load-proportional allocation.
  */
-test('computeExpansionResult: an oversized want rate throws inside the engine, but is caught as ok:false', () => {
+test('computeExpansionResult: an oversized want rate no longer crashes the engine', () => {
   const result = computeExpansionResult({
     dataset: ironChain,
     rows: [{ kind: 'want', itemId: 'rod', rate: 4_000_000 }],
@@ -88,6 +105,32 @@ test('computeExpansionResult: an oversized want rate throws inside the engine, b
     goals: [],
     fillMinutes: 10,
   });
+  assert.equal(result.ok, true, `expected a clean solve, got ${result.error}`);
+  assert.equal(result.plan.feasible, true);
+});
+
+/**
+ * Pins Fix 1's guard itself, independently of any particular engine crash. The
+ * previous version of this test used an oversized want rate to trigger a real
+ * RangeError, which pinned the catch only for as long as that specific crash
+ * existed — bounding recipeOptions removed the crash and silently un-pinned the
+ * guard. Injecting the fault instead keeps the contract under test: whatever
+ * the engine throws, computeExpansionResult reports { ok: false } and hands the
+ * error back, which is what stops recompute() (js/ui/expansion.js) from letting
+ * it reach buildSecondaryView's error path and wipe the rows pane.
+ */
+test('computeExpansionResult: an engine throw is caught and reported as ok:false', () => {
+  const exploding = Object.defineProperty({ ...ironChain }, 'recipes', {
+    get() { throw new Error('dataset access exploded'); },
+  });
+  const result = computeExpansionResult({
+    dataset: exploding,
+    rows: [{ kind: 'want', itemId: 'rod', rate: 15 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog: [],
+    goals: [],
+    fillMinutes: 10,
+  });
   assert.equal(result.ok, false);
-  assert.ok(result.error instanceof RangeError, `expected a RangeError, got ${result.error}`);
+  assert.equal(result.error?.message, 'dataset access exploded');
 });

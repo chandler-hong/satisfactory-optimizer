@@ -10,19 +10,36 @@ export function shardsToReach(clock) {
   return Infinity;
 }
 
-/** Candidate {machines, clock, shards} for a recipe load (machine-equivalents @100%). */
+/** The clock each shard level reaches, descending — so machine counts come out ascending. */
+const SHARD_LEVEL_CLOCKS = [2.5, 2, 1.5, 1];
+
+/**
+ * Candidate {machines, clock, shards} for a recipe load (machine-equivalents @100%).
+ *
+ * One candidate per shard level, not one per machine count: at a given
+ * per-machine shard level, the fewest machines that cover the load dominates
+ * every larger count on both machines AND total shards, so the rest can never
+ * win allocateShards' minimize-machines objective. That keeps this O(1) in
+ * load, which matters because load is user-driven — a big enough want rate
+ * used to allocate one object per machine count until the tab died.
+ */
 export function recipeOptions(load) {
   if (load <= 0) return [{ machines: 0, clock: 0, shards: 0 }];
-  const lo = Math.max(1, Math.ceil(load / 2.5 - EPS));
-  const hi = Math.max(1, Math.ceil(load - EPS));
   const opts = [];
-  for (let n = lo; n <= hi; n++) {
+  let prev = 0;
+  for (const cap of SHARD_LEVEL_CLOCKS) {
+    const n = Math.max(1, Math.ceil(load / cap - EPS));
+    if (n === prev) continue; // a small load collapses several levels onto one count
+    prev = n;
     const clock = load / n;
     const s = shardsToReach(clock);
     if (s !== Infinity) opts.push({ machines: n, clock, shards: n * s });
   }
   return opts;
 }
+
+/** Ceiling on the DP's shard dimension — see the note where B is computed. */
+const MAX_SHARD_DP = 100_000;
 
 /**
  * Minimize total machines subject to total shards ≤ budget (multiple-choice knapsack DP).
@@ -34,7 +51,13 @@ export function allocateShards(items, budget) {
   // Shards are whole numbers; floor + clamp so a non-integer/NaN budget can't
   // produce a fractional/invalid Array length below.
   const safeBudget = Number.isFinite(budget) ? budget : 0;
-  const B = Math.max(0, Math.floor(Math.min(safeBudget, maxUseful)));
+  // B sizes the arrays in the DP, and both numbers feeding it are user input —
+  // the shard-budget box directly, and the load via maxUseful. Left unbounded,
+  // a big enough pair allocates until the process dies, which in a browser is a
+  // renderer OOM no try/catch can catch. Nothing real comes close: passing this
+  // ceiling needs ~83k machine-equivalents of load, so capping it costs
+  // realistic builds nothing and makes absurd ones degrade to fewer shards.
+  const B = Math.max(0, Math.min(MAX_SHARD_DP, Math.floor(Math.min(safeBudget, maxUseful))));
   let dp = new Array(B + 1).fill(Infinity);
   dp[0] = 0;
   const choice = [];
