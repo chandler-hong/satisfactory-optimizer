@@ -11,6 +11,7 @@
  * DOM only — all arithmetic lives in js/engine/expansion.js.
  */
 import { iconEl as icon } from './icons.js';
+import { renderTilesPanel, buildTable, renderMachineTotalsRow, renderBeltRow } from './report-panels.js';
 
 // Duplicated from js/ui/view-model.js rather than imported: that module pulls
 // in the whole Optimizer engine chain (optimize/physical-layer/belt-layer/
@@ -25,49 +26,7 @@ function el(tag, className) {
   return n;
 }
 
-/**
- * Inline icon+text pair. Needed anywhere an icon sits next to text inside a
- * non-flex container (e.g. a <td>): img/.icon-fallback default to
- * display:block (see the global `img` reset in styles.css), so without this
- * wrapper the icon stacks onto its own line instead of sitting beside the text.
- */
-function iconLabel(node, label) {
-  const wrap = el('span');
-  wrap.style.display = 'inline-flex';
-  wrap.style.alignItems = 'center';
-  wrap.style.gap = '0.4rem';
-  wrap.appendChild(node);
-  const span = el('span');
-  span.textContent = label;
-  wrap.appendChild(span);
-  return wrap;
-}
-
-/** "Mk2" -> "Mk.2"; fluids get a "Pipe " prefix so belts vs pipes are distinguishable. */
-function tierLabel(tier, fluid) {
-  const dotted = /^Mk\d+$/.test(tier) ? tier.replace('Mk', 'Mk.') : tier;
-  return fluid ? `Pipe ${dotted}` : dotted;
-}
-
 const extractorSummary = (options) => options.map((o) => `${o.count}× ${o.label}`).join(', ');
-
-function renderTile(label, value) {
-  const tile = el('div', 'tile');
-  const lab = el('span', 'tile__label');
-  lab.textContent = label;
-  const val = el('span', 'tile__value');
-  val.textContent = String(value);
-  tile.append(lab, val);
-  return tile;
-}
-
-function renderTilesPanel(tiles) {
-  const wrap = el('div', 'tiles');
-  wrap.appendChild(renderTile('Machines', tiles.machines));
-  wrap.appendChild(renderTile('Power (MW)', tiles.powerMW));
-  wrap.appendChild(renderTile('Shards', tiles.shards));
-  return wrap;
-}
 
 function panel(title) {
   const section = el('section');
@@ -80,94 +39,21 @@ function panel(title) {
 function renderBuildTablePanel(rows) {
   if (!rows || rows.length === 0) return null;
   const section = panel('To build');
-  const table = el('table', 'build-table');
-  const thead = el('thead');
-  const headRow = el('tr');
-  for (const label of ['Building', 'Recipe', 'Machines', 'Clock', 'Shards', 'Power']) {
-    const th = el('th');
-    th.textContent = label;
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = el('tbody');
-  for (const r of rows) {
-    const tr = el('tr');
-    const buildingTd = el('td');
-    buildingTd.appendChild(iconLabel(icon(r.buildingSlug, 'building', r.buildingName), r.buildingName));
-    tr.appendChild(buildingTd);
-    const recipeTd = el('td');
-    recipeTd.appendChild(iconLabel(icon(r.itemSlug, 'item', r.itemName), r.recipeName));
-    tr.appendChild(recipeTd);
-    const machinesTd = el('td');
-    machinesTd.textContent = `×${r.machines}`;
-    tr.appendChild(machinesTd);
-    const clockTd = el('td');
-    clockTd.textContent = `${r.clockPct}%`;
-    tr.appendChild(clockTd);
-    const shardsTd = el('td');
-    shardsTd.textContent = `${r.shards} shards`;
-    tr.appendChild(shardsTd);
-    const powerTd = el('td');
-    powerTd.textContent = `${r.powerMW} MW`;
-    tr.appendChild(powerTd);
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  section.appendChild(table);
+  section.appendChild(buildTable(rows, ['building', 'recipe', 'machines', 'clock', 'shards', 'power']));
   return section;
 }
 
 function renderMachineTotalsPanel(totals) {
   if (!totals || totals.length === 0) return null;
   const section = panel('Machine totals');
-  const row = el('div', 'machine-totals');
-  for (const t of totals) {
-    const chip = el('div', 'machine-total');
-    chip.appendChild(icon(t.buildingSlug, 'building', t.buildingName));
-    const s = el('span');
-    s.textContent = `${t.buildingName} ×${t.machines}`;
-    chip.appendChild(s);
-    row.appendChild(chip);
-  }
-  section.appendChild(row);
+  section.appendChild(renderMachineTotalsRow(totals));
   return section;
 }
 
 function renderYourBlocksPanel(rows) {
   if (!rows || rows.length === 0) return null;
   const section = panel('Your blocks');
-  const table = el('table', 'build-table');
-  const thead = el('thead');
-  const headRow = el('tr');
-  for (const label of ['Building', 'Recipe', 'Machines', 'Clock']) {
-    const th = el('th');
-    th.textContent = label;
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = el('tbody');
-  for (const r of rows) {
-    const tr = el('tr');
-    const buildingTd = el('td');
-    buildingTd.appendChild(iconLabel(icon(r.buildingSlug, 'building', r.buildingName), r.buildingName));
-    tr.appendChild(buildingTd);
-    const recipeTd = el('td');
-    recipeTd.appendChild(iconLabel(icon(r.itemSlug, 'item', r.itemName), r.recipeName));
-    tr.appendChild(recipeTd);
-    const machinesTd = el('td');
-    machinesTd.textContent = `×${r.machines}`;
-    tr.appendChild(machinesTd);
-    const clockTd = el('td');
-    clockTd.textContent = `${r.clockPct}%`;
-    tr.appendChild(clockTd);
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  section.appendChild(table);
+  section.appendChild(buildTable(rows, ['building', 'recipe', 'machines', 'clock']));
   return section;
 }
 
@@ -253,21 +139,7 @@ function renderBeltsPanel(rows) {
   if (!rows || rows.length === 0) return null;
   const section = panel('Belts & pipes');
   const list = el('ul', 'belt-list');
-  for (const b of rows) {
-    const li = el('li');
-    li.appendChild(icon(b.slug, b.fluid ? 'fluid' : 'item', b.name));
-    const nameSpan = el('span');
-    nameSpan.textContent = b.name;
-    li.appendChild(nameSpan);
-    const rateSpan = el('span');
-    rateSpan.textContent = `${fmt1(b.rate)}${b.fluid ? ' m³' : ''}/min`;
-    li.appendChild(rateSpan);
-    const chip = el('span', b.saturated ? 'chip chip--saturated' : 'chip');
-    const base = `${b.lines} × ${tierLabel(b.tier, b.fluid)}`;
-    chip.textContent = b.saturated ? `${base} · saturated` : base;
-    li.appendChild(chip);
-    list.appendChild(li);
-  }
+  for (const b of rows) list.appendChild(renderBeltRow(b, fmt1));
   section.appendChild(list);
   return section;
 }
