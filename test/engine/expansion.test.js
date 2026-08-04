@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pinnedBalance, splitDemand, computeNetOutput, planExpansion } from '../../js/engine/expansion.js';
+import { buildGraph } from '../../js/engine/graph.js';
 import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
 
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
@@ -139,6 +140,51 @@ test('planExpansion: recipeRates and machinesById mirror buildRows for the LP-so
     assert.ok(p.recipeRates.has(row.recipeId), `recipeRates must have an entry for ${row.recipeId}`);
   }
   assert.equal(p.recipeRates.has('rip'), false, 'the pinned block itself never enters the LP, so it is not an LP-solved recipe');
+});
+
+// Fix for the diagram bug flagged in task-9-report.md: recipeRates/machinesById
+// are upstream-only (confirmed above), so buildGraph never saw a pinned block's
+// own recipe. graphRates/graphMachinesById add each block's own load/machines
+// on top, for the diagram only.
+test('planExpansion: graphRates/graphMachinesById include a pinned block even though it never enters the LP', () => {
+  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  assert.equal(p.recipeRates.has('rip'), false, 'sanity: rip itself is still never LP-solved');
+  assert.equal(rateOf(p.graphRates, 'rip'), 2, "the block's own machine-equivalent load (2 machines @ 100%)");
+  assert.equal(p.graphMachinesById.get('rip'), 2, "the block's own declared machine count");
+});
+
+// The other half of the same fix: a recipe that is BOTH pinned AND separately
+// LP-solved (the 'plate' block below only covers 40 of the 60 plate/min 'rip'
+// needs, so the LP tops up the remaining 20/min with a machine of its own —
+// see the "partly feeding" test below) must sum in the graph maps, not have
+// one side clobber the other.
+test('planExpansion: graphRates/graphMachinesById sum a block and the LP for the same recipe rather than overwrite', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', recipeId: 'plate', machines: 2, clock: 1 },
+  ]);
+  const lpRate = p.recipeRates.get('plate') || 0;
+  const lpMachines = p.machinesById.get('plate') || 0;
+  assert.ok(lpRate > 0, 'sanity: plate is genuinely LP-solved too, not just pinned');
+  assert.equal(rateOf(p.graphRates, 'plate'), r6(lpRate + 2), "the block's load added onto the LP rate, not replacing it");
+  assert.equal(p.graphMachinesById.get('plate'), lpMachines + 2, "the block's machines added onto the LP machine count, not replacing it");
+});
+
+// The user-visible symptom, pinned directly: with buildGraph fed the OLD
+// upstream-only recipeRates/machinesById, a lone 'rip' block (standing in for
+// the real-world "6x Assembler->Motor" report) never got a node of its own
+// (addSink skips a target sink with zero producers), while its direct inputs
+// 'plate'/'screw' (standing in for Rotor/Stator) dangled with no in-graph
+// consumer and rendered as false "surplus". graphRates/graphMachinesById fix
+// this: 'rip' becomes an active recipe in the graph, which both gives it a
+// node and makes it plate/screw's in-graph consumer, netting their leftover to
+// ~0 so neither shows as surplus.
+test('planExpansion: the diagram graph shows a pinned block\'s own recipe, and its direct inputs are not false surplus', () => {
+  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()]);
+  assert.ok(graph.nodes.some((n) => n.id === 'rip'), "the pinned block's own recipe must be a node in the diagram");
+  assert.ok(!graph.nodes.some((n) => n.itemId === 'plate' && n.isSurplus), 'plate now feeds the block in-graph, not spare capacity');
+  assert.ok(!graph.nodes.some((n) => n.itemId === 'screw' && n.isSurplus), 'screw now feeds the block in-graph, not spare capacity');
 });
 
 test('planExpansion: a block feeding another needs no upstream for the intermediate', () => {

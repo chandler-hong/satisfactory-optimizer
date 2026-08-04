@@ -148,13 +148,17 @@ function renderBeltsPanel(rows) {
 
 /**
  * "Factory diagram" — the same tiered flow SVG the Optimizer shows, built from
- * this plan's recipeRates/machinesById with the net-output items as targets
- * (mirrors js/ui/view-model.js's graph call). Built here rather than in
+ * this plan's graphRates/graphMachinesById with the net-output items as
+ * targets (mirrors js/ui/view-model.js's graph call). Deliberately NOT
+ * plan.recipeRates/machinesById — those are LP-solved recipes only, so a
+ * plan built entirely from pinned blocks would show none of them and their
+ * direct inputs would dangle as false "surplus" (see js/engine/expansion.js's
+ * comment on graphRates for the full story). Built here rather than in
  * planExpansion: buildGraph is pure and dataset-shaped, so there's no reason
  * to route it through the engine return value just to hand it straight back.
  */
 function renderDiagramPanel(dataset, plan) {
-  const graph = buildGraph(dataset, plan.recipeRates, plan.machinesById, [...plan.netOutput.keys()]);
+  const graph = buildGraph(dataset, plan.graphRates, plan.graphMachinesById, [...plan.netOutput.keys()]);
   if (!graph || graph.nodes.length === 0) return null;
   const section = panel('Factory diagram');
   const scroll = el('div', 'diagram-scroll');

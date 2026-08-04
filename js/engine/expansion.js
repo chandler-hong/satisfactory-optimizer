@@ -34,6 +34,22 @@ function add(map, k, v) {
 }
 
 /**
+ * Resolve a block row to its recipe plus its machine-equivalent load (machines
+ * × clock, clock defaulting to 1 when absent/invalid) — null for a stale row
+ * whose recipeId isn't in the dataset. Both pinnedBalance and the graph-only
+ * merge in planExpansion need this exact figure to agree, so it lives here
+ * once instead of being recomputed twice.
+ */
+function blockLoad(byId, b) {
+  const recipe = byId.get(b?.recipeId);
+  if (!recipe) return null;                      // stale saved row: ignore rather than throw
+  const machines = Math.max(0, Number(b.machines) || 0);
+  const clock = Number(b.clock);
+  const load = machines * (Number.isFinite(clock) && clock > 0 ? clock : 1);
+  return { recipe, machines, load };
+}
+
+/**
  * Net per-minute balance across every block row at its declared machine count and
  * clock. Positive = the blocks make a surplus; negative = something upstream has
  * to cover the difference.
@@ -45,12 +61,9 @@ export function pinnedBalance(dataset, blockRows) {
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const net = new Map();
   for (const b of blockRows || []) {
-    const recipe = byId.get(b?.recipeId);
-    if (!recipe) continue;                       // stale saved row: ignore rather than throw
-    const machines = Math.max(0, Number(b.machines) || 0);
-    const clock = Number(b.clock);
-    const load = machines * (Number.isFinite(clock) && clock > 0 ? clock : 1);
-    if (load <= 0) continue;
+    const resolved = blockLoad(byId, b);
+    if (!resolved || resolved.load <= 0) continue;
+    const { recipe, load } = resolved;
     for (const itemId of touched(recipe)) add(net, itemId, load * netPerMin(recipe, itemId));
   }
   for (const [k, v] of net) net.set(k, round6(v));
@@ -249,6 +262,28 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const machinesById = new Map(phys.perRecipe.map((pr) => [pr.recipeId, pr.machines]));
 
+  // Graph-only views: recipeRates/machinesById above stay upstream-only (LP-
+  // solved recipes only) — realize(), beltReport(), and the tests all depend
+  // on that exact shape. But buildGraph (js/engine/graph.js) needs the WHOLE
+  // factory, including the blocks the user pinned directly. Omit them and a
+  // block's own recipe never appears (addSink skips a target with zero
+  // producers) while its direct inputs dangle with no in-graph consumer and
+  // render as false "surplus" — worse than no diagram at all. So these are a
+  // COPY of the upstream-only maps with each valid block's load/machines
+  // ADDED onto that recipe's existing entry, never replacing it: a block and
+  // the LP can legitimately both run the same recipe, and both should count.
+  // Skips a stale recipeId exactly like pinnedBalance, and a zero-load row
+  // (0 machines) exactly like pinnedBalance, so the graph never disagrees
+  // with the balance the rest of the plan is built from.
+  const graphRates = new Map(recipeRates);
+  const graphMachinesById = new Map(machinesById);
+  for (const b of blockRows) {
+    const resolved = blockLoad(byId, b);
+    if (!resolved || resolved.load <= 0) continue;
+    add(graphRates, resolved.recipe.id, resolved.load);
+    add(graphMachinesById, resolved.recipe.id, resolved.machines);
+  }
+
   const buildRows = phys.perRecipe
     .map((pr) => {
       const recipe = byId.get(pr.recipeId);
@@ -359,8 +394,15 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
       powerMW: Math.round(phys.totalPowerMW * 10) / 10,
       shards: phys.totalShardsUsed,
     },
-    recipeRates,      // Map<recipeId, ratePerMin> — for buildGraph (see js/engine/graph.js)
-    machinesById,     // Map<recipeId, machineCount> — ditto
+    recipeRates,      // Map<recipeId, ratePerMin> — LP-solved recipes only, upstream of the pinned blocks
+    machinesById,     // Map<recipeId, machineCount> — ditto, upstream-only
+    // graphRates/graphMachinesById: recipeRates/machinesById plus every pinned
+    // block's own load/machines. For buildGraph only (js/engine/graph.js, via
+    // js/ui/expansion-render.js's renderDiagramPanel) — the diagram needs the
+    // whole factory, the rest of this plan does not. See the comment above
+    // where these are built for why they must stay separate from the pair above.
+    graphRates,
+    graphMachinesById,
     buildRows,
     machineTotals: [...totalsByBuilding.values()].sort((a, b) => b.machines - a.machines),
     blockRows: blockView,
