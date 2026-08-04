@@ -78,7 +78,18 @@ export function pinnedBalance(dataset, blockRows) {
     const resolved = blockLoad(byId, b);
     if (!resolved || resolved.load <= 0) continue;
     const { recipe, load } = resolved;
-    for (const itemId of touched(recipe)) add(net, itemId, load * netPerMin(recipe, itemId));
+    if (b?.built === false) {
+      // To build: net the two sides, so the feedstock comes out negative and
+      // splitDemand turns it into an LP target.
+      for (const itemId of touched(recipe)) add(net, itemId, load * netPerMin(recipe, itemId));
+    } else {
+      // Built: the machines exist and are already fed, so only what leaves them
+      // enters the plan. Gross output, NOT max(0, net) — for a recipe with an
+      // item on both sides the input side is covered externally by definition,
+      // so the whole output rate is genuinely available and netting would
+      // under-report it. Entries already carry per-minute rates (normalize.js).
+      for (const o of recipe.outputs || []) add(net, o.itemId, load * o.perMin);
+    }
   }
   for (const [k, v] of net) net.set(k, round6(v));
   return net;
@@ -368,6 +379,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         clockPct: Math.floor(normalizeClock(b.clock) * 100 + 1e-6),
         itemName: outId ? nameOf(dataset, outId) : '',
         itemSlug: outId ? slugOf(dataset, outId) : undefined,
+        built: b.built !== false,
       };
     })
     .filter(Boolean);

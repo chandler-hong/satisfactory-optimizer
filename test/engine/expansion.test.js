@@ -529,3 +529,117 @@ test('planExpansion: normalize(miniRaw) end-to-end exercises output, machines, b
   assert.equal(plasticBelt?.rate, 30);
   assert.equal(residueBelt?.rate, 15);
 });
+
+// --- Built vs To-build blocks ------------------------------------------------
+
+test('pinnedBalance: a Built block contributes its output and no demand', () => {
+  // ingot: 30 ore -> 30 ingot per machine. Built means the ore already flows.
+  const net = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'ingot', machines: 2, clock: 1, built: true }]);
+  assert.equal(rateOf(net, 'ingot'), 60);
+  assert.equal(net.has('ore'), false, 'the ore it eats is not the plan\'s problem');
+  for (const [itemId, v] of net) assert.ok(v >= 0, `Built emits no demand, but ${itemId} is ${v}`);
+});
+
+test('pinnedBalance: an absent built flag means Built, not To-build', () => {
+  const net = pinnedBalance(ironChain, [{ kind: 'block', recipeId: 'ingot', machines: 2, clock: 1 }]);
+  assert.equal(net.has('ore'), false, 'a saved row with no flag reads as Built');
+  assert.equal(rateOf(net, 'ingot'), 60);
+});
+
+test('pinnedBalance: Built uses gross output, not positive net', () => {
+  // A recipe with the same item on both sides. The real dataset has three
+  // (Encased Uranium Cell, Alternate: Instant Scrap, Alternate: Distilled
+  // Silica); iron-chain.js has none and must not be modified, so this is a
+  // throwaway dataset built here — same pattern as oreMakerDataset above.
+  const loopDataset = {
+    ...ironChain,
+    recipes: [...ironChain.recipes, {
+      id: 'loop', name: 'loop', buildingId: 'b', alternate: false,
+      inputs: [{ itemId: 'ore', perMin: 10 }, { itemId: 'goo', perMin: 2 }],
+      outputs: [{ itemId: 'goo', perMin: 5 }],
+    }],
+  };
+  const net = pinnedBalance(loopDataset, [{ kind: 'block', recipeId: 'loop', machines: 1, clock: 1, built: true }]);
+  // Gross output is 5/min. Net would be 5 - 2 = 3/min, which under-reports.
+  assert.equal(rateOf(net, 'goo'), 5, 'the whole output rate is available, not output minus its own input');
+});
+
+test('planExpansion: a Built block feeds a want without planning its own upstream', () => {
+  // Built ingot block + a want for plate, which ingots feed. The ingot recipe
+  // must not be re-planned and its ore must not reach the footer.
+  const p = plan([
+    { kind: 'block', recipeId: 'ingot', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'plate', rate: 20 },
+  ]);
+  const built = p.buildRows.map((r) => r.recipeId);
+  assert.equal(built.includes('ingot'), false, 'the Built block is not re-planned');
+  assert.equal(p.rawNeeded.some((r) => r.itemId === 'ore'), false, 'and its ore is not in the footer');
+  assert.ok(built.includes('plate'), 'but the want is planned');
+});
+
+test('planExpansion: the same block flipped to To-build brings its upstream back', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'ingot', machines: 2, clock: 1, built: false },
+    { kind: 'want', itemId: 'plate', rate: 20 },
+  ]);
+  assert.ok(p.rawNeeded.some((r) => r.itemId === 'ore'), 'ore returns to the footer');
+});
+
+test('planExpansion: a Built line offsets what the LP has to build', () => {
+  // 2 Built ingot machines put 60 ingot/min on the bus; the plate want needs
+  // 30 ingot/min, so the LP should not have to build any ingot capacity.
+  const withBuilt = plan([
+    { kind: 'block', recipeId: 'ingot', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'plate', rate: 20 },
+  ]);
+  const withoutBuilt = plan([{ kind: 'want', itemId: 'plate', rate: 20 }]);
+  const ingotMachines = (p) => p.buildRows.find((r) => r.recipeId === 'ingot')?.machines ?? 0;
+  assert.ok(ingotMachines(withoutBuilt) > 0, 'sanity: without the Built line the LP builds ingots');
+  assert.equal(ingotMachines(withBuilt), 0, 'with it, the LP builds none');
+});
+
+test('planExpansion: blockRows report which kind each block is', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'ingot', machines: 1, clock: 1, built: true },
+    { kind: 'block', recipeId: 'rod', machines: 1, clock: 1, built: false },
+  ]);
+  assert.deepEqual(p.blockRows.map((r) => r.built), [true, false]);
+});
+
+// Added after Task 2's review: annotating all 38 existing rows To-build left the
+// two behaviours below proven ONLY in To-build form, even though both also
+// govern Built. Without these, the Built path inherits no guard for either.
+
+// computeNetOutput's double-count guard: the upstream's consumption of a block's
+// surplus is already a negative term in netFromLPRecipes, so subtracting the
+// drawn supply as well would under-report. That has to hold for a Built block's
+// gross output exactly as it does for a To-build block's net surplus.
+test('computeNetOutput: the double-count guard holds for a Built block too', () => {
+  const asBuilt = plan([
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },  // wants 120 screw
+    { kind: 'block', built: true, recipeId: 'rod', machines: 10, clock: 1 },  // makes 150 rod
+  ]);
+  const asPlanned = plan([
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rod', machines: 10, clock: 1 },
+  ]);
+  // 150 rod made, 30 eaten by the screw machines feeding rip, so 120 leaves —
+  // the same either way. What changes is whether the rod block's own ingot (and
+  // the ore behind it) is the plan's problem.
+  assert.equal(rateOf(asBuilt.netOutput, 'rod'), 120);
+  assert.equal(rateOf(asPlanned.netOutput, 'rod'), 120, 'unchanged from the To-build case');
+  assert.ok(rawFor(asBuilt, 'ore').needed < rawFor(asPlanned, 'ore').needed,
+    'but the Built line stops driving ore for its own ingot');
+});
+
+// The Built branch multiplies by `load`, which comes from blockLoad — so it must
+// go through the same normalizeClock the displayed clockPct uses. If the two ever
+// diverge again, a garbage clock would display as 100% while the gross output was
+// computed at something else.
+test('planExpansion: an invalid clock on a Built block computes as it displays', () => {
+  const invalid = plan([{ kind: 'block', built: true, recipeId: 'rip', machines: 2, clock: -0.5 }]);
+  const normal = plan([{ kind: 'block', built: true, recipeId: 'rip', machines: 2, clock: 1 }]);
+  assert.equal(invalid.blockRows[0].clockPct, 100, 'a negative clock must not display as -50%');
+  assert.equal(rateOf(invalid.netOutput, 'rip'), rateOf(normal.netOutput, 'rip'),
+    'and the gross-output rate must use that same normalized clock');
+});
