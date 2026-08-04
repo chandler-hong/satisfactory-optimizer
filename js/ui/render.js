@@ -1,7 +1,7 @@
 import { iconEl } from './icons.js';
 import { fmt1 } from './view-model.js';
 import { renderDiagram } from './diagram.js';
-import { buildTable, renderMachineTotalsRow, renderBeltRow, renderTilesPanel } from './report-panels.js';
+import { buildTable, renderMachineTotalsRow, renderBeltRow, renderTilesPanel, renderRequirements, renderShortfalls } from './report-panels.js';
 
 function el(tag, className) {
   const node = document.createElement(tag);
@@ -25,22 +25,6 @@ function renderHeadline(planView) {
   h.textContent = planView.headline;
   if (!planView.feasible) h.classList.add('critical');
   return h;
-}
-
-/** Targets-mode shortfalls as a `.warning` callout: "<name> short by <amount>/min". */
-function renderShortfalls(shortfalls) {
-  const box = el('div', 'warning');
-  const heading = el('p');
-  heading.textContent = 'Targets not met:';
-  box.appendChild(heading);
-  const list = el('ul');
-  for (const s of shortfalls) {
-    const li = el('li');
-    li.textContent = `${s.name} short by ${s.amount}${s.fluid ? ' m³' : ''}/min`;
-    list.appendChild(li);
-  }
-  box.appendChild(list);
-  return box;
 }
 
 function renderMeterRow(m) {
@@ -195,56 +179,6 @@ function renderRefinements(refinements) {
     wrap.appendChild(group);
   }
   return wrap;
-}
-
-/** ✓/✗ dependency chips for a requirements callout. */
-function renderReqDeps(deps) {
-  const wrap = el('div', 'req-deps');
-  for (const d of deps) {
-    const chip = el('span', d.added ? 'req-dep req-dep--have' : 'req-dep req-dep--need');
-    const mark = el('span', 'req-dep__mark');
-    mark.textContent = d.added ? '✓' : '✗';
-    chip.appendChild(mark);
-    chip.appendChild(makeIcon(d.slug, d.name, d.fluid ? 'fluid' : 'item'));
-    const name = el('span');
-    name.textContent = d.name;
-    chip.appendChild(name);
-    wrap.appendChild(chip);
-  }
-  return wrap;
-}
-
-/**
- * Requirements diagnostics: a red `.critical` callout per impossible target and
- * an amber `.warning` callout per missing target, each listing raw dependencies
- * as ✓ added / ✗ missing chips. Names via textContent (XSS-safe).
- */
-function renderRequirements(requirements) {
-  const frag = document.createDocumentFragment();
-  for (const t of requirements.impossible) {
-    const box = el('div', 'requirements requirements--critical');
-    const p = el('p');
-    p.textContent = t.reason === 'no-recipe'
-      ? `No enabled recipe produces ${t.name}. Try enabling the alternate recipe it needs.`
-      : `${t.name} can’t be made from the resources you’ve added — recheck your resources or target.`;
-    box.appendChild(p);
-    if (t.deps.length) {
-      const label = el('p', 'req-label');
-      label.textContent = 'Requires:';
-      box.appendChild(label);
-      box.appendChild(renderReqDeps(t.deps));
-    }
-    frag.appendChild(box);
-  }
-  for (const t of requirements.missing) {
-    const box = el('div', 'requirements requirements--warning');
-    const p = el('p');
-    p.textContent = `To make ${t.name} you need:`;
-    box.appendChild(p);
-    box.appendChild(renderReqDeps(t.deps));
-    frag.appendChild(box);
-  }
-  return frag;
 }
 
 /**

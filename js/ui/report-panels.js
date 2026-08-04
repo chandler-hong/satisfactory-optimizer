@@ -173,3 +173,79 @@ export function renderBeltRow(b, fmt1) {
 
   return li;
 }
+
+/** ✓/✗ dependency chips for a requirements callout. */
+function renderReqDeps(deps) {
+  const wrap = el('div', 'req-deps');
+  for (const d of deps) {
+    const chip = el('span', d.added ? 'req-dep req-dep--have' : 'req-dep req-dep--need');
+    const mark = el('span', 'req-dep__mark');
+    mark.textContent = d.added ? '✓' : '✗';
+    chip.appendChild(mark);
+    chip.appendChild(iconEl(d.slug, d.fluid ? 'fluid' : 'item', d.name || ''));
+    const name = el('span');
+    name.textContent = d.name;
+    chip.appendChild(name);
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+
+/**
+ * Requirements diagnostics: a red `.critical` callout per impossible target and
+ * an amber `.warning` callout per missing target, each listing raw dependencies
+ * as ✓ added / ✗ missing chips. Names via textContent (XSS-safe).
+ *
+ * Shared between the Optimizer (render.js) and Expansion (expansion-render.js):
+ * both build this from analyzeRequirements via the identical
+ * {hasIssues, impossible, missing} shape (js/engine/requirements.js,
+ * consumed by js/ui/view-model.js and js/engine/expansion.js respectively).
+ */
+export function renderRequirements(requirements) {
+  const frag = document.createDocumentFragment();
+  for (const t of requirements.impossible) {
+    const box = el('div', 'requirements requirements--critical');
+    const p = el('p');
+    p.textContent = t.reason === 'no-recipe'
+      ? `No enabled recipe produces ${t.name}. Try enabling the alternate recipe it needs.`
+      : `${t.name} can’t be made from the resources you’ve added — recheck your resources or target.`;
+    box.appendChild(p);
+    if (t.deps.length) {
+      const label = el('p', 'req-label');
+      label.textContent = 'Requires:';
+      box.appendChild(label);
+      box.appendChild(renderReqDeps(t.deps));
+    }
+    frag.appendChild(box);
+  }
+  for (const t of requirements.missing) {
+    const box = el('div', 'requirements requirements--warning');
+    const p = el('p');
+    p.textContent = `To make ${t.name} you need:`;
+    box.appendChild(p);
+    box.appendChild(renderReqDeps(t.deps));
+    frag.appendChild(box);
+  }
+  return frag;
+}
+
+/**
+ * Targets-mode shortfalls as a `.warning` callout: "<name> short by <amount>/min".
+ * Shared between the Optimizer and Expansion — both produce the same
+ * {name, amount, fluid} shape (js/engine/optimize.js's hitTargets output via
+ * view-model.js, and js/engine/expansion.js's planExpansion directly).
+ */
+export function renderShortfalls(shortfalls) {
+  const box = el('div', 'warning');
+  const heading = el('p');
+  heading.textContent = 'Targets not met:';
+  box.appendChild(heading);
+  const list = el('ul');
+  for (const s of shortfalls) {
+    const li = el('li');
+    li.textContent = `${s.name} short by ${s.amount}${s.fluid ? ' m³' : ''}/min`;
+    list.appendChild(li);
+  }
+  box.appendChild(list);
+  return box;
+}

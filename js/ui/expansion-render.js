@@ -11,7 +11,7 @@
  * DOM only — all arithmetic lives in js/engine/expansion.js.
  */
 import { iconEl as icon } from './icons.js';
-import { renderTilesPanel, buildTable, renderMachineTotalsRow, renderBeltRow } from './report-panels.js';
+import { renderTilesPanel, buildTable, renderMachineTotalsRow, renderBeltRow, renderRequirements, renderShortfalls } from './report-panels.js';
 import { buildGraph } from '../engine/graph.js';
 import { renderDiagram } from './diagram.js';
 
@@ -229,19 +229,24 @@ export function renderGoals(wrap, goalViews, shortfallCount, onAddShortfalls) {
  * row tagged kind:'block'/'want', even one whose picker was never given a
  * value), so a row that fails validation would leave every panel below empty
  * while `hasPlan` still reported true — the empty-state message would never
- * show. This checks the validated output actually driving the eight panels
- * instead. `requirements`/`shortfalls` are intentionally excluded: this view
- * renders exactly the eight panels below (no diagnostics panel), so a plan
- * whose only "content" is an unmet/impossible target still falls through to
- * the friendly empty-state hint rather than a page of zeroed tiles.
+ * show. This checks the validated output actually driving the panels instead.
+ *
+ * `requirements`/`shortfalls` ARE included (unlike the eight build panels,
+ * which stay keyed off rows/graph data only): a want row for an item with no
+ * enabled recipe, or one the LP can't fully satisfy, produces zero build rows
+ * but a non-empty `requirements`/`shortfalls` — that plan has content worth
+ * showing (the diagnostic callout renderPlan renders below), so it must not
+ * fall through to the "add a block" empty-state hint.
  */
-function hasContent(plan) {
+export function hasContent(plan) {
   return plan.blockRows.length > 0
     || plan.buildRows.length > 0
     || plan.netOutputRows.length > 0
     || plan.supplyUsage.length > 0
     || plan.rawNeeded.length > 0
-    || plan.beltRows.length > 0;
+    || plan.beltRows.length > 0
+    || (plan.requirements && plan.requirements.hasIssues)
+    || (plan.shortfalls && plan.shortfalls.length > 0);
 }
 
 export function renderPlan(wrap, dataset, plan) {
@@ -251,6 +256,12 @@ export function renderPlan(wrap, dataset, plan) {
     p.textContent = 'Add a block — say 6 Assemblers making Motors — and this will work out what has to feed it.';
     wrap.appendChild(p);
     return;
+  }
+  if (plan.requirements && plan.requirements.hasIssues) {
+    wrap.appendChild(renderRequirements(plan.requirements));
+  }
+  if (plan.shortfalls && plan.shortfalls.length > 0) {
+    wrap.appendChild(renderShortfalls(plan.shortfalls));
   }
   wrap.appendChild(renderTilesPanel(plan.tiles));
   for (const section of [
