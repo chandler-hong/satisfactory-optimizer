@@ -559,12 +559,50 @@ test('planExpansion: blockRows report which kind each block is', () => {
   ]);
   assert.deepEqual(p.blockRows.map((r) => r.built), [true, false]);
 });
+
+// Added after Task 2's review: annotating all 38 existing rows To-build left the
+// two behaviours below proven ONLY in To-build form, even though both also
+// govern Built. Without these, the Built path inherits no guard for either.
+
+// computeNetOutput's double-count guard: the upstream's consumption of a block's
+// surplus is already a negative term in netFromLPRecipes, so subtracting the
+// drawn supply as well would under-report. That has to hold for a Built block's
+// gross output exactly as it does for a To-build block's net surplus.
+test('computeNetOutput: the double-count guard holds for a Built block too', () => {
+  const asBuilt = plan([
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },  // wants 120 screw
+    { kind: 'block', built: true, recipeId: 'rod', machines: 10, clock: 1 },  // makes 150 rod
+  ]);
+  const asPlanned = plan([
+    { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'block', built: false, recipeId: 'rod', machines: 10, clock: 1 },
+  ]);
+  // 150 rod made, 30 eaten by the screw machines feeding rip, so 120 leaves —
+  // the same either way. What changes is whether the rod block's own ingot (and
+  // the ore behind it) is the plan's problem.
+  assert.equal(rateOf(asBuilt.netOutput, 'rod'), 120);
+  assert.equal(rateOf(asPlanned.netOutput, 'rod'), 120, 'unchanged from the To-build case');
+  assert.ok(rawFor(asBuilt, 'ore').needed < rawFor(asPlanned, 'ore').needed,
+    'but the Built line stops driving ore for its own ingot');
+});
+
+// The Built branch multiplies by `load`, which comes from blockLoad — so it must
+// go through the same normalizeClock the displayed clockPct uses. If the two ever
+// diverge again, a garbage clock would display as 100% while the gross output was
+// computed at something else.
+test('planExpansion: an invalid clock on a Built block computes as it displays', () => {
+  const invalid = plan([{ kind: 'block', built: true, recipeId: 'rip', machines: 2, clock: -0.5 }]);
+  const normal = plan([{ kind: 'block', built: true, recipeId: 'rip', machines: 2, clock: 1 }]);
+  assert.equal(invalid.blockRows[0].clockPct, 100, 'a negative clock must not display as -50%');
+  assert.equal(rateOf(invalid.netOutput, 'rip'), rateOf(normal.netOutput, 'rip'),
+    'and the gross-output rate must use that same normalized clock');
+});
 ```
 
 - [ ] **Step 7: Run them**
 
 Run: `npm test`
-Expected: **213 pass, fail 0**. If the third test's sanity assertion fails, the plate want isn't driving ingot construction in this fixture — raise the want rate until it does, so the comparison discriminates rather than comparing 0 to 0.
+Expected: **215 pass, fail 0**. If the third test's sanity assertion fails, the plate want isn't driving ingot construction in this fixture — raise the want rate until it does, so the comparison discriminates rather than comparing 0 to 0.
 
 - [ ] **Step 8: Commit**
 
@@ -701,7 +739,7 @@ That row now also carries `built`. Add the field to the **expected** object rath
 - [ ] **Step 5: Run to verify all pass**
 
 Run: `npm test`
-Expected: **217 pass, fail 0**.
+Expected: **219 pass, fail 0**.
 
 - [ ] **Step 6: Commit**
 
@@ -883,7 +921,7 @@ git status --short      # expect no untracked files
 
 - [ ] **Step 7: Run the suite and commit**
 
-Run: `npm test` — expected **217 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **219 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css
@@ -1032,7 +1070,7 @@ Keep `saveState` where Task 3 of the previous round put it — **after** the `if
 - [ ] **Step 4: Run the suite**
 
 Run: `npm test`
-Expected: **219 pass, fail 0**.
+Expected: **221 pass, fail 0**.
 
 - [ ] **Step 5: Verify in the browser**
 
