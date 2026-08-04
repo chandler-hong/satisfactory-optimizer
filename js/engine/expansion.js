@@ -301,15 +301,25 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // ADDED onto that recipe's existing entry, never replacing it: a block and
   // the LP can legitimately both run the same recipe, and both should count.
   // Skips a stale recipeId exactly like pinnedBalance, and a zero-load row
-  // (0 machines) exactly like pinnedBalance, so the graph never disagrees
-  // with the balance the rest of the plan is built from.
+  // (0 machines) exactly like pinnedBalance.
+  //
+  // A Built block, though, is a source in the diagram, not a consumer of its
+  // own inputs — pinnedBalance's Built branch above already treats its
+  // feedstock as covered externally, and the graph must agree or it
+  // disagrees with the balance the rest of the plan is built from. So
+  // builtRecipeIds collects the recipe id of every valid, nonzero-load Built
+  // (not explicitly `built: false`) row here, for buildGraph to treat as a
+  // producer-only source: a node and its output edges, but no input
+  // edges/demand (js/ui/expansion-render.js passes this straight through).
   const graphRates = new Map(recipeRates);
   const graphMachinesById = new Map(machinesById);
+  const builtRecipeIds = new Set();
   for (const b of blockRows) {
     const resolved = blockLoad(byId, b);
     if (!resolved || resolved.load <= 0) continue;
     add(graphRates, resolved.recipe.id, resolved.load);
     add(graphMachinesById, resolved.recipe.id, resolved.machines);
+    if (b?.built !== false) builtRecipeIds.add(resolved.recipe.id);
   }
 
   const buildRows = phys.perRecipe
@@ -439,6 +449,10 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // where these are built for why they must stay separate from the pair above.
     graphRates,
     graphMachinesById,
+    // Recipe ids fed by a Built block (see above) — passed to buildGraph by
+    // js/ui/expansion-render.js as the externally-fed set, so the diagram
+    // treats them as sources instead of consumers of their own inputs.
+    builtRecipeIds,
     buildRows,
     machineTotals: [...totalsByBuilding.values()].sort((a, b) => b.machines - a.machines),
     blockRows: blockView,

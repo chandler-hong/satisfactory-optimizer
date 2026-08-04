@@ -11,7 +11,7 @@ const nameOf = (dataset, id) => dataset.items.get(id)?.name ?? id;
 const slugOf = (dataset, id) => dataset.items.get(id)?.slug;
 const fluidOf = (dataset, id) => !!dataset.items.get(id)?.liquid;
 
-export function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
+export function buildGraph(dataset, recipeRates, machinesById, targetItemIds, externallyFedIds = new Set()) {
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const active = [...recipeRates.keys()].filter((id) => byId.has(id));
   const push = (map, k, v) => {
@@ -27,10 +27,22 @@ export function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
     }
   }
 
+  // `externallyFedIds` (e.g. the Expansion view's Built blocks — see
+  // js/engine/expansion.js's builtRecipeIds) are recipes whose machines exist
+  // and are already fed from outside this diagram: a source, exactly like a
+  // raw or a have-supply. So they still get a node above and still contribute
+  // their outputs to netById below (both loops are unconditional), but they
+  // must emit no input edges and no input demand — skipped here, rather than
+  // dropped from `active` entirely, which would also lose their own output
+  // node/edges (a different wrong answer: addSink requires an entry in
+  // producersOf to create a sink at all). Defaulted to empty so every
+  // existing caller (js/ui/view-model.js's Optimizer graph, and any graph
+  // test that predates this parameter) is unaffected.
   const edges = [];
   const rawNeeded = new Set();
   const inEdges = new Map();
   for (const rid of active) {
+    if (externallyFedIds.has(rid)) continue;
     const x = recipeRates.get(rid);
     for (const inp of byId.get(rid).inputs) {
       const total = x * inp.perMin;
@@ -83,12 +95,19 @@ export function buildGraph(dataset, recipeRates, machinesById, targetItemIds) {
       machines: machinesById.get(rid) ?? 0,
     });
   }
-  // Net produced-minus-consumed for every item in the build.
+  // Net produced-minus-consumed for every item in the build. Externally-fed
+  // recipes skip the input side here too, for the same reason as above: their
+  // inputs are covered outside this diagram, so subtracting them would make a
+  // real output look partly consumed and could push its net at or below zero
+  // — and addSink below refuses to create a sink for a net that isn't
+  // strictly positive, silently dropping an output the rest of the plan
+  // (netOutput) says genuinely leaves.
   const netById = new Map();
   for (const rid of active) {
     const x = recipeRates.get(rid);
     const r = byId.get(rid);
     for (const o of r.outputs) netById.set(o.itemId, (netById.get(o.itemId) || 0) + x * o.perMin);
+    if (externallyFedIds.has(rid)) continue;
     for (const inp of r.inputs) netById.set(inp.itemId, (netById.get(inp.itemId) || 0) - x * inp.perMin);
   }
 

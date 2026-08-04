@@ -155,9 +155,15 @@ function renderBeltsPanel(rows) {
  * comment on graphRates for the full story). Built here rather than in
  * planExpansion: buildGraph is pure and dataset-shaped, so there's no reason
  * to route it through the engine return value just to hand it straight back.
+ *
+ * Also passes plan.builtRecipeIds so a Built block's own recipe renders as a
+ * source (a node plus its output edges only) rather than a consumer of its
+ * own inputs — see js/engine/expansion.js's comment on builtRecipeIds and
+ * js/engine/graph.js's buildGraph for why that distinction has to survive
+ * into the diagram.
  */
 function renderDiagramPanel(dataset, plan) {
-  const graph = buildGraph(dataset, plan.graphRates, plan.graphMachinesById, [...plan.netOutput.keys()]);
+  const graph = buildGraph(dataset, plan.graphRates, plan.graphMachinesById, [...plan.netOutput.keys()], plan.builtRecipeIds);
   if (!graph || graph.nodes.length === 0) return null;
   const section = panel('Factory diagram');
   const scroll = el('div', 'diagram-scroll');

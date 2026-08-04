@@ -206,6 +206,28 @@ test('planExpansion: the diagram graph shows a pinned block\'s own recipe, and i
   assert.ok(!graph.nodes.some((n) => n.itemId === 'screw' && n.isSurplus), 'screw now feeds the block in-graph, not spare capacity');
 });
 
+// A Built block is a source in the diagram, not a consumer of its own inputs:
+// the machines already exist and are already fed (pinnedBalance's Built branch
+// above only ever adds gross output), so buildGraph must not wire the block's
+// inputs as in-graph demand. Regression guard: graphRates/graphMachinesById
+// used to merge a Built block's load in exactly like a To-build one, so
+// buildGraph still drew an edge from whatever makes 'ingot' to 'plate' and
+// subtracted plate's ingot appetite from netById — pushing ingot's net
+// negative and making addSink drop the out:ingot sink entirely, even though
+// netOutput (and the want row) both say 30 ingot/min genuinely leaves.
+test("planExpansion: a Built block's own recipe is a source in the diagram, not a consumer of its inputs", () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'plate', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'ingot', rate: 30 },
+  ]);
+  assert.equal(rateOf(p.netOutput, 'plate'), 40, "sanity: the Built block's gross output");
+  assert.equal(rateOf(p.netOutput, 'ingot'), 30, 'sanity: the want is met');
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.builtRecipeIds);
+  assert.ok(graph.nodes.some((n) => n.id === 'out:ingot'), 'ingot leaves the system just like netOutput promises');
+  assert.ok(!graph.edges.some((e) => e.from === 'ingot' && e.to === 'plate'),
+    "plate's ingot appetite is covered externally, not drawn from the ingot recipe in-graph");
+});
+
 test('planExpansion: a block feeding another needs no upstream for the intermediate', () => {
   const p = plan([
     { kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 },
@@ -602,8 +624,9 @@ test('planExpansion: blockRows report which kind each block is', () => {
   const p = plan([
     { kind: 'block', recipeId: 'ingot', machines: 1, clock: 1, built: true },
     { kind: 'block', recipeId: 'rod', machines: 1, clock: 1, built: false },
+    { kind: 'block', recipeId: 'screw', machines: 1, clock: 1 },  // no `built` key at all: a legacy row, defaults to Built
   ]);
-  assert.deepEqual(p.blockRows.map((r) => r.built), [true, false]);
+  assert.deepEqual(p.blockRows.map((r) => r.built), [true, false, true]);
 });
 
 // Added after Task 2's review: annotating all 38 existing rows To-build left the
@@ -642,4 +665,13 @@ test('planExpansion: an invalid clock on a Built block computes as it displays',
   assert.equal(invalid.blockRows[0].clockPct, 100, 'a negative clock must not display as -50%');
   assert.equal(rateOf(invalid.netOutput, 'rip'), rateOf(normal.netOutput, 'rip'),
     'and the gross-output rate must use that same normalized clock');
+});
+
+// The test above pins display-vs-compute agreement on garbage input, but -0.5
+// and 1 both normalize to the same load as 2 bare machines, so it can't tell
+// `load` (machines * clock) apart from `machines` alone. A fractional clock
+// can: 2 machines @ 150% is 3 machine-equivalents, not 2.
+test('planExpansion: a Built block\'s gross output scales with a fractional clock, not just machine count', () => {
+  const p = plan([{ kind: 'block', built: true, recipeId: 'ingot', machines: 2, clock: 1.5 }]);
+  assert.equal(rateOf(p.netOutput, 'ingot'), 90, '2 machines @ 150% clock is 3 machine-equivalents worth of output');
 });
