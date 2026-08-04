@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeState, DEFAULT_STATE, uncoveredToRows } from '../../js/ui/expansion.js';
+import { sanitizeState, DEFAULT_STATE, uncoveredToRows, computeExpansionResult } from '../../js/ui/expansion.js';
+import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
 
 test('sanitizeState: null / garbage falls back to defaults', () => {
   assert.deepEqual(sanitizeState(null), DEFAULT_STATE);
@@ -47,4 +48,46 @@ test('uncoveredToRows: one want row per uncovered part, de-duplicated across goa
 
 test('uncoveredToRows: nothing uncovered yields no rows', () => {
   assert.deepEqual(uncoveredToRows([{ id: 'g', uncovered: [] }]), []);
+});
+
+test('computeExpansionResult: ok:true with a plan/goalViews/shortfallRows for a normal input', () => {
+  const result = computeExpansionResult({
+    dataset: ironChain,
+    rows: [{ kind: 'want', itemId: 'rod', rate: 15 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog: [],
+    goals: [],
+    fillMinutes: 10,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.plan.feasible, true);
+  assert.deepEqual(result.goalViews, []);
+  assert.deepEqual(result.shortfallRows, []);
+});
+
+/**
+ * Pins the real bug behind Fix 1: a want rate big enough that the LP sizes
+ * `rod`'s load past what physical-layer.js's allocateShards can handle blows
+ * up with RangeError: Maximum call stack size exceeded (its shard search
+ * spreads one options array per recipe into Math.max — see recipeOptions /
+ * allocateShards in js/engine/physical-layer.js). This is the same class of
+ * crash a large block-machines count or an extreme want rate can trigger
+ * through the real dataset; reproduced here against the tiny iron-chain
+ * fixture, at a rate rate that's already unreachable through any realistic
+ * base/have/want combination, purely to force the LP to size `rod` that big.
+ * computeExpansionResult must catch it and report `{ ok: false }` rather than
+ * letting it propagate — that's what keeps recompute() (js/ui/expansion.js)
+ * from wiping the rows pane the way buildSecondaryView's error path would.
+ */
+test('computeExpansionResult: an oversized want rate throws inside the engine, but is caught as ok:false', () => {
+  const result = computeExpansionResult({
+    dataset: ironChain,
+    rows: [{ kind: 'want', itemId: 'rod', rate: 4_000_000 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog: [],
+    goals: [],
+    fillMinutes: 10,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.error instanceof RangeError, `expected a RangeError, got ${result.error}`);
 });

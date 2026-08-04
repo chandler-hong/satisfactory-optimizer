@@ -148,6 +148,12 @@ function makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange) {
   const machinesLabel = el('span', 'target-row__label');
   machinesLabel.textContent = 'Machines';
   const machinesInput = numberInput({ value: initial?.machines ?? 1, min: 1, step: 1, width: '4rem' });
+  // Belt-and-braces, not the real guard (that's recompute()'s try/catch below):
+  // a block this large has no realistic in-game counterpart, and letting the
+  // LP size an upstream recipe for it is what can overflow physical-layer.js's
+  // shard search (see computeExpansionResult's comment). max doesn't clamp a
+  // typed value — same caveat as clockInput.max above — it's just a nudge.
+  machinesInput.max = '9999';
   const clockLabel = el('span', 'target-row__label');
   clockLabel.textContent = 'Clock %';
   const clockInput = numberInput({ value: Math.round((initial?.clock ?? 1) * 100), min: 1, step: 1, width: '4.5rem' });
@@ -315,6 +321,39 @@ function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
   };
 }
 
+/** Replace `target`'s contents with a single plain-text paragraph. */
+function renderMessage(target, text) {
+  target.replaceChildren();
+  const p = el('p');
+  p.textContent = text;
+  target.appendChild(p);
+}
+
+/**
+ * Run the engine and goals evaluation for one recompute, without touching the
+ * DOM. Exists so a throw from planExpansion has somewhere to land besides
+ * propagating out of recompute() uncaught: an extreme input (e.g. a want rate
+ * large enough that the LP sizes some upstream recipe's load past what
+ * physical-layer.js's allocateShards can handle — its shard search spreads
+ * one array per recipe into Math.max, which throws "Maximum call stack size
+ * exceeded" once that array is large enough) is a real, reachable case, not
+ * hypothetical, and nothing about the guard should be specific to that one
+ * failure mode. Split out (rather than inlining the try/catch in recompute())
+ * so a test can call this directly with a plain object — no document, no
+ * localStorage — and assert it returns `{ ok: false }` instead of throwing.
+ * Returns `{ ok: true, plan, goalViews, shortfallRows }` on success.
+ */
+export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes }) {
+  try {
+    const plan = planExpansion({ dataset, rows, enabledRecipeIds });
+    const goalViews = evaluateGoals(catalog, goals, plan.netOutput, fillMinutes);
+    const shortfallRows = uncoveredToRows(goalViews);
+    return { ok: true, plan, goalViews, shortfallRows };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 /**
  * Build the Expansion view into `container`: a rows panel (blocks / want /
  * have / goals) on the left, the plan + goals report on the right.
@@ -337,16 +376,30 @@ export function buildExpansion(dataset, container) {
   const resultsPane = el('div', 'exp-results');
   grid.append(rowsPane, resultsPane);
 
+  /**
+   * A throwing plan must not take the whole view down with it — rowsPane (the
+   * blocks/want/have/goals sections built below) has to stay mounted and
+   * editable so the bad value can actually be walked back, especially since
+   * saveState() above already persisted it: without this, reloading replays
+   * the same throw with the rows that would fix it gone too. Mirrors
+   * js/main.js's Optimizer recompute(), just against exp-rows/exp-results
+   * instead of #inputs/#results. See computeExpansionResult for what this is
+   * actually guarding against.
+   */
   function recompute() {
     const rows = [...blockSection.readAll(), ...wantSection.readAll(), ...haveSection.readAll()];
     const goals = goalsSection.getSelectedIds();
     const fillMinutes = goalsSection.getFillMinutes();
     saveState({ rows, goals, fillMinutes });
-    const plan = planExpansion({ dataset, rows, enabledRecipeIds });
-    renderPlan(resultsPane, dataset, plan);
-    const goalViews = evaluateGoals(catalog, goals, plan.netOutput, fillMinutes);
-    const shortfallRows = uncoveredToRows(goalViews);
-    renderGoals(resultsPane, goalViews, shortfallRows.length, () => addShortfallRows(shortfallRows));
+    try {
+      const result = computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes });
+      if (!result.ok) throw result.error;
+      renderPlan(resultsPane, dataset, result.plan);
+      renderGoals(resultsPane, result.goalViews, result.shortfallRows.length, () => addShortfallRows(result.shortfallRows));
+    } catch (err) {
+      console.error(err);
+      renderMessage(resultsPane, `Failed to compute plan: ${err?.message ?? String(err)}`);
+    }
   }
   const scheduleRecompute = debounce(recompute, 150);
 
