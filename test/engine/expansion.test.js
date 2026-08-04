@@ -126,6 +126,21 @@ test('planExpansion: one block explodes to whole upstream machines', () => {
   assert.equal(p.tiles.machines, 12);
 });
 
+// recipeRates/machinesById feed buildGraph (js/engine/graph.js) for the
+// Expansion view's diagram — added alongside it (see task-9-brief.md). Checked
+// against buildRows rather than hardcoded numbers: buildRows is already
+// exhaustively tested above, so this only needs to confirm the two new fields
+// agree with it and are scoped to the same LP-solved recipes.
+test('planExpansion: recipeRates and machinesById mirror buildRows for the LP-solved recipes', () => {
+  const p = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  assert.ok(p.buildRows.length > 0, 'sanity: this scenario does build upstream machines');
+  for (const row of p.buildRows) {
+    assert.equal(p.machinesById.get(row.recipeId), row.machines, `machinesById must agree with buildRows for ${row.recipeId}`);
+    assert.ok(p.recipeRates.has(row.recipeId), `recipeRates must have an entry for ${row.recipeId}`);
+  }
+  assert.equal(p.recipeRates.has('rip'), false, 'the pinned block itself never enters the LP, so it is not an LP-solved recipe');
+});
+
 test('planExpansion: a block feeding another needs no upstream for the intermediate', () => {
   const p = plan([
     { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
@@ -309,6 +324,12 @@ test('planExpansion: no rows yields an empty, feasible plan', () => {
   assert.equal(p.tiles.machines, 0);
   assert.deepEqual(p.buildRows, []);
   assert.equal(p.hasPlan, false);
+});
+
+test('planExpansion: no rows yields empty recipeRates and machinesById maps', () => {
+  const p = plan([]);
+  assert.equal(p.recipeRates.size, 0);
+  assert.equal(p.machinesById.size, 0);
 });
 
 test('rawNeeded: reports the rate and whole miners for a solid', () => {

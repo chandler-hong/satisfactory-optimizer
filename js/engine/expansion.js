@@ -247,6 +247,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   const phys = realize({ dataset, recipeRates, shardBudget });
   const belts = beltReport({ dataset, recipeRates, beltTier, pipeTier });
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
+  const machinesById = new Map(phys.perRecipe.map((pr) => [pr.recipeId, pr.machines]));
 
   const buildRows = phys.perRecipe
     .map((pr) => {
@@ -358,6 +359,8 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
       powerMW: Math.round(phys.totalPowerMW * 10) / 10,
       shards: phys.totalShardsUsed,
     },
+    recipeRates,      // Map<recipeId, ratePerMin> — for buildGraph (see js/engine/graph.js)
+    machinesById,     // Map<recipeId, machineCount> — ditto
     buildRows,
     machineTotals: [...totalsByBuilding.values()].sort((a, b) => b.machines - a.machines),
     blockRows: blockView,

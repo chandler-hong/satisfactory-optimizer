@@ -12,6 +12,8 @@
  */
 import { iconEl as icon } from './icons.js';
 import { renderTilesPanel, buildTable, renderMachineTotalsRow, renderBeltRow } from './report-panels.js';
+import { buildGraph } from '../engine/graph.js';
+import { renderDiagram } from './diagram.js';
 
 // Duplicated from js/ui/view-model.js rather than imported: that module pulls
 // in the whole Optimizer engine chain (optimize/physical-layer/belt-layer/
@@ -145,6 +147,23 @@ function renderBeltsPanel(rows) {
 }
 
 /**
+ * "Factory diagram" — the same tiered flow SVG the Optimizer shows, built from
+ * this plan's recipeRates/machinesById with the net-output items as targets
+ * (mirrors js/ui/view-model.js's graph call). Built here rather than in
+ * planExpansion: buildGraph is pure and dataset-shaped, so there's no reason
+ * to route it through the engine return value just to hand it straight back.
+ */
+function renderDiagramPanel(dataset, plan) {
+  const graph = buildGraph(dataset, plan.recipeRates, plan.machinesById, [...plan.netOutput.keys()]);
+  if (!graph || graph.nodes.length === 0) return null;
+  const section = panel('Factory diagram');
+  const scroll = el('div', 'diagram-scroll');
+  renderDiagram(scroll, graph);
+  section.appendChild(scroll);
+  return section;
+}
+
+/**
  * Per-goal progress for the ticked HUB milestones / Space Elevator phases, plus
  * the "push shortfalls into Want rows" action. Appended straight onto `wrap`
  * rather than clearing it first: expansion.js's recompute() always calls
@@ -238,6 +257,7 @@ export function renderPlan(wrap, dataset, plan) {
     renderSupplyUsagePanel(plan.supplyUsage, dataset),
     renderRawNeededPanel(plan.rawNeeded),
     renderBeltsPanel(plan.beltRows),
+    renderDiagramPanel(dataset, plan),
   ]) {
     if (section) wrap.appendChild(section);
   }
