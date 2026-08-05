@@ -789,3 +789,85 @@ test('planExpansion: a Built block on a disabled alternate still plans normally'
   assert.equal(p.blockRows.length, 1, 'the block is honoured despite its recipe being disabled');
   assert.ok(p.netOutputRows.some((r) => r.itemId === 'rod'), 'and its output reaches the plan');
 });
+
+// --- Wave B test hardening ---------------------------------------------------
+// Each test below closes one mutation that survived the full suite (0/228
+// kills) in the review pass that produced this file's other tests. Scenarios
+// deliberately duplicate rows/fixtures from tests above rather than editing
+// them in place.
+
+test("buildGraph (D1): a Built block's own output still gets a sink, not just the LP's target", () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'plate', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'ingot', rate: 30 },
+  ]);
+  assert.equal(rateOf(p.netOutput, 'plate'), 40, "sanity: the Built block's gross output");
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
+  assert.ok(graph.nodes.some((n) => n.id === 'out:plate'),
+    "netById's output side must count the block's full load (40), not its non-fed remainder (0), or this sink is never created");
+});
+
+test("buildGraph (D2): the diagram's input edge carries only the LP's own share of a partly-Built recipe", () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rod', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'rod', rate: 100 },
+  ]);
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
+  const edge = graph.edges.find((e) => e.from === 'ingot' && e.to === 'rod');
+  assert.ok(edge, 'sanity: the ingot->rod edge exists');
+  assert.equal(r6(edge.rate), 70,
+    'the edge must carry inputLoad (the LP-built 70 rod/min share only) — the full load would double-count the Built share and read ~100');
+});
+
+test('planExpansion (D3): externallyFedLoad sums every Built row on the same recipe id, not just the last one', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rod', machines: 2, clock: 1, built: true },
+    { kind: 'block', recipeId: 'rod', machines: 3, clock: 1, built: true },
+  ]);
+  assert.equal(p.externallyFedLoad.get('rod'), 5, 'two Built rows of 2 and 3 machines must accumulate to 5, not overwrite down to 3');
+});
+
+test('planExpansion (D4): a Built raw-producing block credits its output, rather than being ignored or charged as demand', () => {
+  const p = planOre([
+    { kind: 'block', recipeId: 'oreMaker', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'ingot', rate: 30 },
+  ]);
+  // The want's 30 ore/min demand, minus the Built oreMaker's own 10 ore/min
+  // (2 machines x 5/min), is 20. Skipping the credit leaves the full 30;
+  // negating it charges an extra 10 as demand instead, landing on 40.
+  assert.equal(rawFor(p, 'ore').needed, 20,
+    "the Built block's 10 ore/min must credit against the want's 30 ore/min, leaving 20 — not 30 (credit skipped) or 40 (credit negated into demand)");
+});
+
+const dualOutputDataset = {
+  ...ironChain,
+  recipes: [...ironChain.recipes,
+    { id: 'dualOut', name: 'dualOut', buildingId: 'b', alternate: false, inputs: [], outputs: [{ itemId: 'plate', perMin: 3 }, { itemId: 'rod', perMin: 7 }] },
+  ],
+};
+
+test('pinnedBalance (D5): a Built multi-output block reports every output at its full gross rate, not just the first', () => {
+  const net = pinnedBalance(dualOutputDataset, [
+    { kind: 'block', recipeId: 'dualOut', machines: 2, clock: 1, built: true },
+  ]);
+  assert.equal(rateOf(net, 'plate'), 6, 'sanity: first output at gross rate (2 machines x 3/min)');
+  assert.equal(rateOf(net, 'rod'), 14, 'the second output must also be reported (2 machines x 7/min), not dropped for only reading outputs[0]');
+});
+
+test("buildGraph (D6): an overclocked Built block is fed by its own load, not its raw machine count", () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rod', machines: 2, clock: 1.5, built: true },
+    { kind: 'want', itemId: 'ingot', rate: 10 },
+  ]);
+  assert.equal(rateOf(p.netOutput, 'rod'), 45, 'sanity: 2 machines @150% clock is 3 machine-equivalents worth of rod');
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
+  assert.ok(!graph.edges.some((e) => e.from === 'ingot' && e.to === 'rod'),
+    "externallyFedLoad must use the block's load (3), not its machine count (2), or a phantom 15/min ingot->rod edge appears");
+});
+
+test('planExpansion (D7): a zero-machines block row is excluded from the graph merge, not merged in as a phantom entry', () => {
+  const p = plan([{ kind: 'block', recipeId: 'screw', machines: 0, clock: 1 }]);
+  assert.equal(p.graphRates.has('screw'), false, 'a 0-machine row must not create a graphRates entry at all');
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
+  assert.ok(!graph.nodes.some((n) => n.id === 'screw'), 'a 0-machine block must not draw a phantom node in the diagram');
+});
