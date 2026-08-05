@@ -46,16 +46,24 @@ export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWas
  * single target with weight 1 reduces to maximizing that one part.
  * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[], noWaste?:boolean}} params
  */
-export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false }) {
-  const args = { dataset, caps, enabledRecipeIds, targets, noWaste };
+export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
+  const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies };
   const r1 = solveModel(buildMaxSetsModel(args));
-  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [] };
+  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn: [] };
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
   const recipeRates = ratesFrom(chosen.values, enabledRecipeIds);
   const perPart = targets.map((t) => ({ itemId: t.itemId, weight: t.weight, rate: (t.weight > 0 ? t.weight : 1) * sets }));
-  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates) };
+  // One entry per input supply, in input order, so callers can pair it back up
+  // positionally — same contract hitTargets provides. A skipped supply (raw, or
+  // a non-positive rate) reports 0 rather than being omitted.
+  const supplyDrawn = (supplies || []).map((s) => {
+    const kind = s?.kind === 'pinned' ? 'pinned' : 'have';
+    const used = chosen.values[supplyVarName(s?.itemId, kind)] || 0;
+    return { itemId: s?.itemId, kind, used: Math.round(used * 1e6) / 1e6 };
+  });
+  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn };
 }
 
 /** Hit target rates with minimum raw usage; slack variables report shortfalls. */

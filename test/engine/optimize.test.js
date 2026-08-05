@@ -128,3 +128,40 @@ test('hitTargets: pinned supply is consumed before have supply', () => {
     { itemId: 'screw', kind: 'have', used: 40 },
   ]);
 });
+
+// --- maxSets with declared supplies -----------------------------------------
+
+/**
+ * The Expansion view's maximize bound: a declared supply caps the answer, and
+ * the recipes that could produce that item are withheld from the solver, so the
+ * supply is the only source. rotor takes 100 screw per 4 rotor (25 each), so
+ * 80 screw/min caps rotor at 3.2/min.
+ */
+test('maxSets: a declared supply caps the maximum and is reported as drawn', () => {
+  const baseNoScrew = new Set([...ALL_IRON_RECIPES].filter((id) => id !== 'screw'));
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(Infinity),
+    enabledRecipeIds: baseNoScrew,
+    targets: [{ itemId: 'rotor', weight: 1 }],
+    supplies: [{ itemId: 'screw', rate: 80, kind: 'pinned' }],
+  });
+  assert.equal(r.feasible, true);
+  assert.ok(Math.abs(r.sets - 3.2) < 1e-6, `expected 3.2 rotor/min, got ${r.sets}`);
+  assert.equal(r.supplyDrawn.length, 1, 'one entry per input supply');
+  assert.equal(r.supplyDrawn[0].itemId, 'screw');
+  assert.equal(r.supplyDrawn[0].kind, 'pinned');
+  assert.ok(Math.abs(r.supplyDrawn[0].used - 80) < 1e-6, 'the supply is fully consumed, i.e. binding');
+});
+
+test('maxSets: without the supply the same request is infeasible or zero', () => {
+  const baseNoScrew = new Set([...ALL_IRON_RECIPES].filter((id) => id !== 'screw'));
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(Infinity),
+    enabledRecipeIds: baseNoScrew,
+    targets: [{ itemId: 'rotor', weight: 1 }],
+  });
+  assert.ok(!r.feasible || r.sets < 1e-6, `no screw source means no rotors, got ${r.sets}`);
+  assert.deepEqual(r.supplyDrawn, [], 'and nothing was drawn');
+});
