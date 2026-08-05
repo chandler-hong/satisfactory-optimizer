@@ -114,27 +114,24 @@ the Optimizer here is the point; this bullet exists so nobody re-implements it.
 **untouched** — max mode differs only in which solver runs and what bounds it. The default
 keeps every existing caller and all 236 tests unaffected.
 
-**A To-build block in max mode still gets its feedstock planned.** `splitDemand`'s `targets`
-map holds both want-row demand and To-build block deficits, and those deficits are real work
-that must happen even while something else is being maximized — but `maxSets` has no notion of
-a minimum rate. So `buildMaxSetsModel` also gains a `minRates` parameter (a `Map<itemId,
-rate>`) that sets `constraints[itemId] = { min: rate }`, mirroring what
-`buildTargetRatesModel` already does for its targets, and max mode passes `targets` into it as
-floors rather than as the objective. Inert by default, so the Optimizer is unaffected. The
-alternative — silently treating every block as Built in max mode — was rejected: this feature
-has already had to fix two display-vs-compute divergences, and a mode switch that quietly
-changes what a row *means* is the same class of trap.
+**Blocks have no feedstock to plan in max mode.** A block is always already built and already
+fed, so it can never appear in `splitDemand`'s `targets` map as a deficit — only want-row
+demand can, and max mode replaces the Want section with Maximize targets, so that map is
+always empty here too. `maxSets` therefore needs no notion of a minimum rate: there is nothing
+left for a floor to protect. `buildMaxSetsModel` briefly gained a `minRates` parameter for
+this (mirroring `buildTargetRatesModel`'s targets-as-floors), but it was reverted once the
+Built/To-build distinction was dropped — no caller could ever populate it. Neither
+`buildMaxSetsModel` nor `maxSets` takes a floors argument.
 
 The exclusion set is computed from the block rows: for each row whose recipe resolves, take
 `recipe.outputs[0].itemId` — already how this codebase reads a primary output elsewhere in
 both `js/engine/expansion.js` and `js/ui/expansion.js` — then remove from `enabledRecipeIds`
 every recipe that outputs that item.
 
-Applies to **both** Built and To-build blocks: a To-build block is still a declared capacity
-for its output, it just has its feedstock planned as well. Note this does not remove the block
-itself — blocks are applied through `pinnedBalance`, never through `enabledRecipeIds`, so
-excluding a block's own recipe from the LP's choices leaves the block's declared output
-intact. That separation is what makes the exclusion safe to state so bluntly.
+Applies to every block: excluding a block's own recipe from the LP's choices does not remove
+the block itself — blocks are applied through `pinnedBalance`, never through
+`enabledRecipeIds` — so the block's declared output stays intact. That separation is what
+makes the exclusion safe to state so bluntly.
 
 ### 5.2 The unbounded guard
 

@@ -28,8 +28,8 @@
 
 | File | Responsibility | Change |
 |---|---|---|
-| `js/engine/lp-builder.js` | Builds LP models | `buildMaxSetsModel` gains `supplies` and `minRates`, both inert by default |
-| `js/engine/optimize.js` | Solver entry points | `maxSets` threads both params and returns `supplyDrawn` |
+| `js/engine/lp-builder.js` | Builds LP models | `buildMaxSetsModel` gains `supplies`, inert by default |
+| `js/engine/optimize.js` | Solver entry points | `maxSets` threads `supplies` through and returns `supplyDrawn` |
 | `js/engine/expansion.js` | The Expansion planner (pure) | `mode` param, the exclusion set, the maxSets branch, the maximize readout |
 | `js/ui/expansion.js` | Expansion DOM: state, rows, wiring | `sanitizeState` for `mode`/`max` rows; the mode toggle; the Maximize section |
 | `js/ui/expansion-render.js` | Expansion result panels | the maximize headline + the unbounded message |
@@ -37,7 +37,7 @@
 
 ---
 
-### Task 1: `buildMaxSetsModel` accepts declared supplies and minimum rates
+### Task 1: `buildMaxSetsModel` accepts declared supplies
 
 **Files:**
 - Modify: `js/engine/lp-builder.js:131-147` (`buildMaxSetsModel`)
@@ -45,7 +45,7 @@
 
 **Interfaces:**
 - Consumes: the existing private `addSupplies(dataset, variables, constraints, supplies)` at `js/engine/lp-builder.js:28`.
-- Produces: `buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [], minRates = new Map() })`. `supplies` is `[{ itemId, rate, kind }]` where `kind` is `'pinned'` or `'have'`. `minRates` is `Map<itemId, rate>` forcing `constraints[itemId] = { min: rate }`. Both default to inert. Task 3 relies on these exact names.
+- Produces: `buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] })`. `supplies` is `[{ itemId, rate, kind }]` where `kind` is `'pinned'` or `'have'`. Inert by default. Task 3 relies on this exact name.
 
 - [ ] **Step 1: Read the current function**
 
@@ -58,14 +58,14 @@ Read `js/engine/lp-builder.js:107-155`. You need three things:
   }
 ```
    Your `addSupplies` call must run **before** this loop, so the supply variables it creates get `[SETS] = 0` like every other variable. Calling it after would leave them without that coefficient.
-3. `buildMinRawForSetsModel(args, minSets)` delegates to `buildMaxSetsModel(args)`, so it inherits both new params with no change.
+3. `buildMinRawForSetsModel(args, minSets)` delegates to `buildMaxSetsModel(args)`, so it inherits the new parameter with no change.
 
 - [ ] **Step 2: Write the failing tests**
 
 Append to `test/engine/lp-builder.test.js`. Read the top of that file first for its existing imports and fixture usage, and match them.
 
 ```js
-// --- buildMaxSetsModel: declared supplies and minimum rates ------------------
+// --- buildMaxSetsModel: declared supplies ------------------------------------
 
 // Expansion maximizes against what the user declared, not against ore, so the
 // max model needs the same capped-supply primitive the target-rates model has.
@@ -86,21 +86,9 @@ test('buildMaxSetsModel: a declared supply becomes a capped variable', () => {
     'addSupplies must run BEFORE the SETS normalization loop, or this coefficient is missing');
 });
 
-test('buildMaxSetsModel: minRates forces a floor on an item, not the default min 0', () => {
-  const m = buildMaxSetsModel({
-    dataset: ironChain,
-    caps: capsIron(360),
-    enabledRecipeIds: ALL_IRON_RECIPES,
-    targets: [{ itemId: 'rotor', weight: 1 }],
-    minRates: new Map([['plate', 25]]),
-  });
-  assert.deepEqual(m.constraints.plate, { min: 25 }, 'the floor replaces the default { min: 0 }');
-  assert.deepEqual(m.constraints.rod, { min: 0 }, 'an item with no floor is untouched');
-});
-
-// Both params are additive and shared with the live Factory Optimizer, so the
+// supplies is additive and shared with the live Factory Optimizer, so the
 // omitted-argument model must be byte-identical to what it was before.
-test('buildMaxSetsModel: omitting supplies and minRates changes nothing', () => {
+test('buildMaxSetsModel: omitting supplies changes nothing', () => {
   const args = {
     dataset: ironChain,
     caps: capsIron(360),
@@ -108,9 +96,9 @@ test('buildMaxSetsModel: omitting supplies and minRates changes nothing', () => 
     targets: [{ itemId: 'mf', weight: 1 }],
   };
   const bare = buildMaxSetsModel(args);
-  const explicit = buildMaxSetsModel({ ...args, supplies: [], minRates: new Map() });
+  const explicit = buildMaxSetsModel({ ...args, supplies: [] });
   assert.equal(JSON.stringify(bare), JSON.stringify(explicit),
-    'an empty supplies array and an empty minRates map are inert');
+    'an empty supplies array is inert');
   assert.equal(Object.keys(bare.constraints).some((k) => k.startsWith('_supcap_')), false,
     'and no supply-cap constraint appears');
 });
@@ -135,14 +123,14 @@ Leave the file's local `dataset`/`io` helpers alone — the existing tests use t
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `npm test`
-Expected: the first two FAIL (`supplies`/`minRates` are ignored, so no `_supcap_` constraint exists and `constraints.plate` is `{ min: 0 }`). The third PASSES already — it is the inertness guard.
+Expected: the first FAILS (`supplies` is ignored, so no `_supcap_` constraint exists). The second PASSES already — it is the inertness guard.
 
 - [ ] **Step 4: Implement**
 
 Change the signature and body of `buildMaxSetsModel`:
 
 ```js
-export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [], minRates = new Map() }) {
+export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);
   const nVar = { [SETS]: 1, [RAWCOST]: 0 };
   for (const t of targets) {
@@ -161,13 +149,6 @@ export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, no
   for (const i of touchedNonRaw) {
     constraints[i] = noWaste ? { equal: 0 } : { min: 0 };
   }
-  // A floor on an item the caller must still satisfy — Expansion's max mode uses
-  // this for a To-build block's feedstock, which has to be planned even while
-  // something else is being maximized. Applied last so it wins over the { min: 0 }
-  // default above.
-  for (const [itemId, rate] of minRates) {
-    if (Number.isFinite(rate) && rate > 0) constraints[itemId] = { min: rate };
-  }
   return { optimize: SETS, opType: 'max', constraints, variables };
 }
 ```
@@ -177,38 +158,37 @@ Note `rawConstraints(...)` moved **above** the `addSupplies` call because `addSu
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: **239 pass, fail 0** (3 new tests). Every pre-existing LP and view-model test must still pass — they are the regression signal for the Optimizer.
+Expected: **238 pass, fail 0** (2 new tests). Every pre-existing LP and view-model test must still pass — they are the regression signal for the Optimizer.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add js/engine/lp-builder.js test/engine/lp-builder.test.js
-git commit -m "feat(engine): the max model accepts declared supplies and rate floors
+git commit -m "feat(engine): the max model accepts declared supplies
 
 Expansion maximizes against what you declared rather than against ore, so the
-max-sets model needs the capped-supply primitive the target-rates model already
-had, plus a floor for demands that must still be met while something else is
-maximized (a To-build block's feedstock).
+max-sets model needs the same capped-supply primitive the target-rates model
+already had.
 
 addSupplies runs before the SETS normalization loop so the supply variables it
 creates get that coefficient like every other variable. buildMinRawForSetsModel
-needed no change — it delegates, so the min-raw second pass inherits both.
+needed no change — it delegates, so the min-raw second pass inherits it too.
 
-Both parameters default to inert, and a test asserts the omitted-argument model
+The parameter defaults to inert, and a test asserts the omitted-argument model
 is byte-identical, because this builder is shared with the live Optimizer."
 ```
 
 ---
 
-### Task 2: `maxSets` threads the new params and reports supply usage
+### Task 2: `maxSets` threads the new param and reports supply usage
 
 **Files:**
 - Modify: `js/engine/optimize.js:49-60` (`maxSets`)
 - Test: `test/engine/optimize.test.js`
 
 **Interfaces:**
-- Consumes: `buildMaxSetsModel`'s `supplies` and `minRates` from Task 1.
-- Produces: `maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [], minRates = new Map() })` returning `{ feasible, sets, recipeRates, perPart, bindingResources, supplyDrawn }`. `supplyDrawn` is `[{ itemId, kind, used }]` — **one entry per input supply, unfiltered, in input order**, matching what `hitTargets` already returns. Task 3's binding check depends on that alignment.
+- Consumes: `buildMaxSetsModel`'s `supplies` from Task 1.
+- Produces: `maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] })` returning `{ feasible, sets, recipeRates, perPart, bindingResources, supplyDrawn }`. `supplyDrawn` is `[{ itemId, kind, used }]` — **one entry per input supply, unfiltered, in input order**, matching what `hitTargets` already returns. Task 3's binding check depends on that alignment.
 
 - [ ] **Step 1: Read how `hitTargets` builds `supplyDrawn`**
 
@@ -267,8 +247,8 @@ Expected: the first FAILS — `supplies` is not threaded, so `r.sets` is not 3.2
 Replace `maxSets`:
 
 ```js
-export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [], minRates = new Map() }) {
-  const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies, minRates };
+export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
+  const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies };
   const r1 = solveModel(buildMaxSetsModel(args));
   if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn: [] };
   const sets = r1.objective;
@@ -301,7 +281,7 @@ Expected: **241 pass, fail 0**.
 git add js/engine/optimize.js test/engine/optimize.test.js
 git commit -m "feat(engine): maxSets accepts declared supplies and reports what it drew
 
-Threads supplies and minRates to the builder on both passes, and returns
+Threads supplies to the builder on both passes, and returns
 supplyDrawn in the same shape hitTargets does — one entry per input supply,
 unfiltered, in input order — so a caller can pair it positionally and tell
 which declared line is binding.
@@ -319,7 +299,7 @@ comes from the min-raw pass, so the drawn amounts have to come from there too."
 - Test: `test/engine/expansion.test.js`
 
 **Interfaces:**
-- Consumes: `maxSets` from Task 2 with `supplies`, `minRates` and `supplyDrawn`.
+- Consumes: `maxSets` from Task 2 with `supplies` and `supplyDrawn`.
 - Produces: `planExpansion({ ..., mode = 'targets' })`. In `'max'` mode the return gains:
   - `maximize: { sets: number, perPart: [{ itemId, name, slug, fluid, weight, rate }], bindingItems: [{ itemId, name, rate }], bounded: boolean }`
   - `mode: 'targets' | 'max'` echoed back.
@@ -328,7 +308,7 @@ comes from the min-raw pass, so the drawn amounts have to come from there too."
 - [ ] **Step 1: Read the current solve region and the readout helpers**
 
 Read `js/engine/expansion.js:260-300` and `:360-390`. You need:
-- `splitDemand`'s return: `{ targets, supplies, rawDemand, rawSupplied, rawCredit }`. `targets` is a `Map<itemId, rate>` holding both want-row demand and To-build block deficits.
+- `splitDemand`'s return: `{ targets, supplies, rawDemand, rawSupplied, rawCredit }`. `targets` is a `Map<itemId, rate>` holding want-row demand.
 - `caps` at `:277-283`: every touched raw set to `Infinity`.
 - `nameOf(dataset, id)`, `slugOf(dataset, id)`, `fluidOf(dataset, id)` and `round6` at `:22-25`.
 - `blockLoad(byId, b)` returning `{ recipe, machines, load }` or null.
@@ -527,9 +507,7 @@ Change the signature at `:268` to add `mode = 'targets'`, then replace the solve
 
   let solved;
   if (isMax) {
-    // `targets` from splitDemand are floors here, not the objective: a To-build
-    // block's feedstock still has to be planned while something else is maximized.
-    solved = maxSets({ dataset, caps, enabledRecipeIds: solveEnabled, targets: maxTargets, supplies, minRates: targets });
+    solved = maxSets({ dataset, caps, enabledRecipeIds: solveEnabled, targets: maxTargets, supplies });
   } else if (targets.size > 0) {
     solved = hitTargets({ dataset, caps, enabledRecipeIds, targets, supplies });
   } else {
@@ -594,10 +572,6 @@ block is a statement about your capacity for that item.
 Scoped to outputs[0] on purpose: a block's byproducts and every have row stay
 available, because declaring a Scrap line shouldn't forbid the whole game from
 producing Water.
-
-splitDemand's targets become rate FLOORS in max mode rather than the objective,
-so a To-build block's feedstock is still planned while something else is
-maximized.
 
 Binding is computed from supplyDrawn, not from supplyUsage — that one is
 filtered to have-rows and its capped flag also requires the item to be LP-built,

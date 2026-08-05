@@ -37,16 +37,13 @@ diagram. Tick a HUB milestone or Space Elevator phase and it checks the plan aga
 goal's cost, showing what's still uncovered and roughly how long the plan takes to fill it —
 with a one-click button to turn the gaps into demand rows.
 
-Each block is either **Built** or **To build**, and the difference is the whole point. A
-Built block already exists and is already fed, so only what it *makes* enters the plan.
-Declare your existing 6× Assembler Motor line as Built and ask for 10 Modular Engine/min:
-Stator drops out entirely, and the Motors' own share of the Rotors goes with it — Rotor
-machines fall from ×20 to just the ×5 that Smart Plating still needs for itself, taking
-iron ore from 1410/min down to 465/min and total machines from 267 to 97. A To-build
-block gets its feedstock planned upstream instead. New blocks default to Built — and so
-do any blocks saved before this feature shipped, since the storage format wasn't bumped,
-so a returning session's plan can re-solve to something materially different on first
-load.
+A block is something you already have — already built and already fed — so only what it
+*makes* counts toward the plan; its own inputs never create upstream demand. The planner
+works out what else you need to add. Declare your existing 6× Assembler Motor line as a
+block and ask for 10 Modular Engine/min: the plan needs 465 iron ore/min and 97 machines
+in total, including ×5 Rotor machines — Smart Plating, further up the Modular Engine
+chain, still needs Rotors of its own, on top of whatever the Motor line already covers
+internally.
 
 The Expansion view has its own alternate-recipe picker, starting with all of them off, so it
 won't prescribe a recipe you haven't unlocked. It's independent of the Optimizer's picker —
