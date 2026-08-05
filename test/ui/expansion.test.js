@@ -172,3 +172,15 @@ test('sanitizeState: a knownRecipeIds argument without a .has method is ignored,
   assert.deepEqual(sanitizeState({ alts: ['ingot'] }, ['ingot']).alts, ['ingot']);
   assert.deepEqual(sanitizeState({ alts: ['ingot'] }, {}).alts, ['ingot']);
 });
+
+// --- Wave B test hardening ---------------------------------------------------
+
+test('sanitizeState (D8): alts drops non-string entries even with no knownRecipeIds argument at all', () => {
+  // The two existing alts tests above either supply a knownRecipeIds Set (whose
+  // .has() safely returns false for a non-string, masking a missing type
+  // filter) or supply only strings (which a missing type filter would also let
+  // through unchanged). Neither can catch the type filter being removed; this
+  // scenario — a non-string, no knownRecipeIds — can only pass if the
+  // `typeof id === 'string'` filter itself is doing the work.
+  assert.deepEqual(sanitizeState({ alts: ['x', 42] }).alts, ['x'], 'a non-string alt id must be dropped even when no known-id set is supplied');
+});
