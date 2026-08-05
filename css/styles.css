@@ -1507,3 +1507,18 @@ button.codex-io:focus-visible {
 .exp-goal-part--uncovered { color: var(--warning); }
 
 .exp-goal-add { width: 100%; margin-top: 0.5rem; }
+
+.exp-built {
+  display: inline-flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.exp-built__opt {
+  display: inline-flex;
+  gap: 0.2rem;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  cursor: pointer;
+}

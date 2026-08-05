@@ -51,10 +51,32 @@ function renderMachineTotalsPanel(totals) {
   return section;
 }
 
+/**
+ * "Your blocks" is the one build-table caller that needs a column the shared
+ * BUILD_COLUMNS spec doesn't have (Kind: Built vs To build), so rather than
+ * add a key to that shared spec for one caller, the base four columns come
+ * from buildTable/BUILD_COLUMNS as usual and the Kind column is appended
+ * onto the resulting table here — leaving report-panels.js, and every other
+ * caller of buildTable, untouched.
+ */
 function renderYourBlocksPanel(rows) {
   if (!rows || rows.length === 0) return null;
   const section = panel('Your blocks');
-  section.appendChild(buildTable(rows, ['building', 'recipe', 'machines', 'clock']));
+  const table = buildTable(rows, ['building', 'recipe', 'machines', 'clock']);
+  const kindTh = el('th');
+  kindTh.textContent = 'Kind';
+  table.querySelector('thead tr').appendChild(kindTh);
+  const bodyRows = table.querySelectorAll('tbody tr');
+  rows.forEach((row, i) => {
+    const td = el('td');
+    // Built vs To build, so the panel doesn't read as one undifferentiated list —
+    // only the To-build rows have had their feedstock planned.
+    const kind = el('span', row.built ? 'chip' : 'chip chip--warning');
+    kind.textContent = row.built ? 'Built' : 'To build';
+    td.appendChild(kind);
+    bodyRows[i].appendChild(td);
+  });
+  section.appendChild(table);
   return section;
 }
 
