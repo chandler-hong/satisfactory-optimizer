@@ -85,9 +85,17 @@ export function sanitizeState(raw, knownRecipeIds) {
   }
   const goals = (Array.isArray(raw.goals) ? raw.goals : []).filter((g) => typeof g === 'string');
   const fill = Number(raw.fillMinutes);
+  // Feature-test rather than trust the type: a caller could pass anything
+  // truthy without a .has method (an array, a plain object) and sanitizeState
+  // must degrade to "skip the filter" for it, same as an omitted argument,
+  // rather than throw — loadState below wraps this call in try/catch, so a
+  // throw here wouldn't just fail to filter, it would discard the entire
+  // saved plan and fall back to defaults. Hoisted out of the filter callback
+  // since it's loop-invariant.
+  const canFilter = typeof knownRecipeIds?.has === 'function';
   const alts = (Array.isArray(raw.alts) ? raw.alts : [])
     .filter((id) => typeof id === 'string')
-    .filter((id) => !knownRecipeIds || knownRecipeIds.has(id));
+    .filter((id) => !canFilter || knownRecipeIds.has(id));
   return { rows, goals, fillMinutes: Number.isFinite(fill) && fill > 0 ? fill : DEFAULT_FILL_MINUTES, alts };
 }
 

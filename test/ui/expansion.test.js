@@ -161,3 +161,14 @@ test('sanitizeState: without a known-id set, alt ids are kept as-is', () => {
   // The boot path passes the set; callers that don't care skip the filter.
   assert.deepEqual(sanitizeState({ alts: ['anything'] }).alts, ['anything']);
 });
+
+test('sanitizeState: a knownRecipeIds argument without a .has method is ignored, not thrown', () => {
+  // Feature-test the second argument rather than trusting its type: an array
+  // (one refactor away from the Set the boot path builds today) or a plain
+  // object both lack .has, and must degrade to "skip the filter" like an
+  // omitted argument — not throw. loadState wraps sanitizeState in try/catch,
+  // so a throw here wouldn't just fail to filter; it would discard the user's
+  // entire saved plan and fall back to defaults.
+  assert.deepEqual(sanitizeState({ alts: ['ingot'] }, ['ingot']).alts, ['ingot']);
+  assert.deepEqual(sanitizeState({ alts: ['ingot'] }, {}).alts, ['ingot']);
+});
