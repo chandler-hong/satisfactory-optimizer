@@ -420,26 +420,41 @@ test('planExpansion (max): balanced sets weight the targets against each other',
     'weight 2 means twice as much rod as rotor, per set');
 });
 
-test('planExpansion (max): a block byproduct is NOT excluded, only the primary output', () => {
-  // dualOut's primary output is 'a'; 'b' is a byproduct. Declaring the block
-  // must not stop the solver making 'b' by other means.
+/**
+ * Tests blockOutputExclusions directly rather than through a plan. Going through
+ * planExpansion here would need a disjunctive assertion ("bMaker was built OR the
+ * answer was unbounded"), which passes trivially via the second clause and proves
+ * nothing — exactly the non-discriminating shape that slipped through twice on
+ * the previous round of this feature. The exclusion set is pure and exported, so
+ * assert on it.
+ */
+test('blockOutputExclusions: only the primary output is excluded, not a byproduct', () => {
+  // dualOut makes 'a' (primary) and 'b' (byproduct). bMaker also makes 'b'.
   const twoOut = {
     ...ironChain,
-    items: new Map([...ironChain.items, ['a', { id: 'a', name: 'A' }], ['b', { id: 'b', name: 'B' }]]),
     recipes: [...ironChain.recipes,
       { id: 'dualOut', name: 'dualOut', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 10 }], outputs: [{ itemId: 'a', perMin: 5 }, { itemId: 'b', perMin: 3 }] },
       { id: 'bMaker', name: 'bMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 2 }], outputs: [{ itemId: 'b', perMin: 4 }] },
+      { id: 'aMaker', name: 'aMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 9 }], outputs: [{ itemId: 'a', perMin: 5 }] },
     ],
   };
-  const p = planExpansion({
-    dataset: twoOut,
-    rows: [{ kind: 'block', built: true, recipeId: 'dualOut', machines: 1, clock: 1 },
-           { kind: 'max', itemId: 'b', weight: 1 }],
-    enabledRecipeIds: new Set([...ALL_IRON_RECIPES, 'dualOut', 'bMaker']),
-    mode: 'max',
-  });
-  assert.ok(machinesOf(p, 'bMaker') > 0 || p.maximize.bounded === false,
-    'bMaker must remain available — only dualOut (which outputs the primary "a") is excluded');
+  const ex = blockOutputExclusions(twoOut, [{ kind: 'block', built: true, recipeId: 'dualOut', machines: 1, clock: 1 }]);
+  assert.equal(ex.has('dualOut'), true, 'the declared line itself produces the primary output');
+  assert.equal(ex.has('aMaker'), true, 'and so does any other route to that primary output');
+  assert.equal(ex.has('bMaker'), false,
+    "the byproduct 'b' is NOT a declared ceiling, so its other producer stays available");
+});
+
+test('blockOutputExclusions: a have row excludes nothing', () => {
+  const ex = blockOutputExclusions(ironChain, []);
+  assert.equal(ex.size, 0, 'no blocks means no exclusions — have rows never exclude');
+});
+
+test('blockOutputExclusions: a stale or zero-machine block row excludes nothing', () => {
+  const stale = blockOutputExclusions(ironChain, [{ kind: 'block', built: true, recipeId: 'no_such', machines: 2, clock: 1 }]);
+  assert.equal(stale.size, 0, 'an unresolvable recipeId is skipped, matching pinnedBalance');
+  const zero = blockOutputExclusions(ironChain, [{ kind: 'block', built: true, recipeId: 'screw', machines: 0, clock: 1 }]);
+  assert.equal(zero.size, 0, 'a zero-load row declares no capacity, so it is not a ceiling');
 });
 
 test('planExpansion: mode defaults to targets, so every existing caller is unaffected', () => {
@@ -562,7 +577,7 @@ Add `mode` and `maximize` to the returned object.
 - [ ] **Step 7: Run to verify they pass**
 
 Run: `npm test`
-Expected: **249 pass, fail 0** (8 new). All 241 prior tests must still pass — the `mode = 'targets'` default is what guarantees it. If the balanced-sets test's ratio is off, check that `perPart`'s `rate` is `weight * sets`, not `sets`.
+Expected: **251 pass, fail 0** (10 new). All 241 prior tests must still pass — the `mode = 'targets'` default is what guarantees it. If the balanced-sets test's ratio is off, check that `perPart`'s `rate` is `weight * sets`, not `sets`.
 
 - [ ] **Step 8: Commit**
 
@@ -664,7 +679,7 @@ and include `mode` in the returned object.
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `npm test`
-Expected: **251 pass, fail 0**. The existing `sanitizeState: null / garbage falls back to defaults` test compares against `DEFAULT_STATE`, so adding `mode` there keeps it passing — if it fails, you added `mode` to the return but not to `DEFAULT_STATE`.
+Expected: **253 pass, fail 0**. The existing `sanitizeState: null / garbage falls back to defaults` test compares against `DEFAULT_STATE`, so adding `mode` there keeps it passing — if it fails, you added `mode` to the return but not to `DEFAULT_STATE`.
 
 - [ ] **Step 5: Commit**
 
@@ -894,7 +909,7 @@ Delete `_probe.html`, kill the server, and confirm `git status --short` is clean
 
 - [ ] **Step 6: Run the suite and commit**
 
-Run: `npm test` — expected **251 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **253 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css
