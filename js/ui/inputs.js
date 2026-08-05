@@ -1,5 +1,4 @@
 import { capsFromInputs } from '../engine/resource-model.js';
-import { iconUrl } from './icons.js';
 import { createSearchSelect } from './search-select.js';
 import { createAltPicker } from './alt-picker.js';
 
