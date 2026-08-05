@@ -1522,3 +1522,11 @@ button.codex-io:focus-visible {
   color: var(--ink-muted);
   cursor: pointer;
 }
+
+/* Same reason as .exp-goal-row's checkbox rule above: .expansion-view is a
+   sibling of .app, so .app's accent-color rule doesn't reach these radios. */
+.exp-built__opt input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}

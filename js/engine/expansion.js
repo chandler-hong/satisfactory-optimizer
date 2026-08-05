@@ -1,5 +1,5 @@
 /**
- * Expansion planner: you declare machine blocks you've decided to build plus
+ * Expansion planner: you declare machine blocks you have or plan to build plus
  * whatever is already on your bus, and this works out what has to feed them.
  *
  * The Factory Optimizer solves the other direction — given ore nodes, maximize
