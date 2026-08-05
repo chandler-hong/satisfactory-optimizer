@@ -11,6 +11,7 @@
  * paint. The goals panel lives in this file too, below the row sections.
  */
 import { createSearchSelect } from './search-select.js';
+import { createAltPicker } from './alt-picker.js';
 import { planExpansion, normalizeClock } from '../engine/expansion.js';
 import { buildGoalCatalog, evaluateGoals } from '../domain/goals.js';
 import { renderPlan, renderGoals } from './expansion-render.js';
@@ -419,9 +420,11 @@ export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalo
 /**
  * Build the Expansion view into `container`: a rows panel (blocks / want /
  * have / goals) on the left, the plan + goals report on the right.
- * `enabledRecipeIds` is every recipe — the Optimizer's alternate-recipe
- * checkboxes are that view's own state, and sharing them across views is out
- * of scope here.
+ * `enabledRecipeIds` comes from this view's own alternates picker, off by
+ * default — separate saved state from the Optimizer's picker, since each
+ * view can explore a different "what's unlocked" hypothesis. A block row can
+ * still name a disabled alternate: the picker gates what the LP may choose,
+ * not what a block may declare.
  */
 export function buildExpansion(dataset, container) {
   container.replaceChildren();
@@ -429,24 +432,29 @@ export function buildExpansion(dataset, container) {
   const recipeOpts = recipeOptions(dataset);
   const itemOpts = itemOptions(dataset);
   const recipeById = new Map(dataset.recipes.map((r) => [r.id, r]));
-  const enabledRecipeIds = new Set(dataset.recipes.map((r) => r.id));
   const saved = loadState(new Set(dataset.recipes.map((r) => r.id)));
 
-  // Unlike the Factory Optimizer (which enables base recipes only by default —
-  // see inputs.js's `if (!r.alternate)`), this view solves the upstream demand
-  // with every alternate recipe available. There's no picker here, and wiring
-  // one to the Optimizer's own enabled-set is out of scope. Left silent, that
-  // choice can swing the headline numbers on a real base, which matters most
-  // exactly when someone's using them to decide whether to commit.
-  //
-  // The copy deliberately claims less than it's tempting to: the LP minimizes
-  // RAW USAGE (optimize.js's hitTargets), not machines, so unlocking recipes can
-  // only lower the ore floor — machine count is unconstrained and can move
-  // either way. And the Optimizer already starts with alternates off, so telling
-  // the user to switch them off there would describe a step they've already got.
-  const altHint = el('p', 'hint');
-  altHint.textContent = 'Assumes every alternate recipe is unlocked, so the ore below can be lower than base recipes alone could reach. The Factory Optimizer tab starts with alternates off, if you want that comparison.';
-  container.appendChild(altHint);
+  const altPicker = createAltPicker({
+    dataset,
+    // scheduleRecompute is defined further down; the arrow defers the lookup to
+    // click time so this doesn't read it before initialisation.
+    onChange: () => scheduleRecompute(),
+    warningText: "⚠ Alternate recipes are disabled by default — expand below and enable the ones you've unlocked. Blocks can still use any recipe.",
+  });
+  altPicker.setEnabled(saved.alts || []);
+
+  function currentEnabledRecipeIds() {
+    const enabledAlts = altPicker.getEnabledIds();
+    const ids = new Set();
+    for (const r of dataset.recipes) {
+      if (!r.alternate) ids.add(r.id);
+      else if (enabledAlts.has(r.id)) ids.add(r.id);
+    }
+    return ids;
+  }
+
+  container.appendChild(altPicker.warningEl);
+  container.appendChild(altPicker.el);
 
   const grid = el('div', 'exp');
   container.appendChild(grid);
@@ -465,7 +473,9 @@ export function buildExpansion(dataset, container) {
     const rows = [...blockSection.readAll(), ...wantSection.readAll(), ...haveSection.readAll()];
     const goals = goalsSection.getSelectedIds();
     const fillMinutes = goalsSection.getFillMinutes();
-    const result = computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes });
+    const result = computeExpansionResult({
+      dataset, rows, enabledRecipeIds: currentEnabledRecipeIds(), catalog, goals, fillMinutes,
+    });
     if (!result.ok) {
       // Deliberately not persisted. Saving before the compute meant a value that
       // killed it was already on disk, so the next page load replayed the same
@@ -477,7 +487,7 @@ export function buildExpansion(dataset, container) {
       renderMessage(resultsPane, `Failed to compute plan: ${result.error?.message ?? String(result.error)}`);
       return;
     }
-    saveState({ rows, goals, fillMinutes });
+    saveState({ rows, goals, fillMinutes, alts: [...altPicker.getEnabledIds()] });
     try {
       renderPlan(resultsPane, dataset, result.plan);
       renderGoals(resultsPane, result.goalViews, result.shortfallRows.length, () => addShortfallRows(result.shortfallRows));

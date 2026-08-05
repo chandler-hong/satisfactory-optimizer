@@ -745,3 +745,47 @@ test('planExpansion: a Built block\'s gross output scales with a fractional cloc
   const p = plan([{ kind: 'block', built: true, recipeId: 'ingot', machines: 2, clock: 1.5 }]);
   assert.equal(rateOf(p.netOutput, 'ingot'), 90, '2 machines @ 150% clock is 3 machine-equivalents worth of output');
 });
+
+// --- Alternates gating -------------------------------------------------------
+
+// 'fastrod' is an ALTERNATE that makes 'rod' more cheaply, plus 'gizmo' which
+// ONLY an alternate can make. iron-chain.js has no alternates and must not be
+// modified, so both live here.
+const altDataset = {
+  ...ironChain,
+  recipes: [...ironChain.recipes,
+    { id: 'fastrod', name: 'fastrod', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ingot', perMin: 10 }], outputs: [{ itemId: 'rod', perMin: 20 }] },
+    { id: 'gizmo', name: 'gizmo', buildingId: 'b', alternate: true, inputs: [{ itemId: 'rod', perMin: 5 }], outputs: [{ itemId: 'gizmo', perMin: 5 }] },
+  ],
+};
+const BASE_ONLY = new Set(altDataset.recipes.filter((r) => !r.alternate).map((r) => r.id));
+const WITH_ALTS = new Set(altDataset.recipes.map((r) => r.id));
+
+test('planExpansion: a want only an alternate can make is unproducible with alternates off', () => {
+  const off = planExpansion({
+    dataset: altDataset,
+    rows: [{ kind: 'want', itemId: 'gizmo', rate: 10 }],
+    enabledRecipeIds: BASE_ONLY,
+  });
+  assert.equal(off.requirements.hasIssues, true, 'nothing can make it');
+
+  const on = planExpansion({
+    dataset: altDataset,
+    rows: [{ kind: 'want', itemId: 'gizmo', rate: 10 }],
+    enabledRecipeIds: WITH_ALTS,
+  });
+  assert.equal(on.requirements.hasIssues, false, 'enabling the alternate makes it producible');
+  assert.ok(on.buildRows.some((r) => r.recipeId === 'gizmo'));
+});
+
+test('planExpansion: a Built block on a disabled alternate still plans normally', () => {
+  // The picker gates what the LP may CHOOSE, never what the user may DECLARE.
+  // Blocks are pinned, not solved, so an unchecked alternate is valid here.
+  const p = planExpansion({
+    dataset: altDataset,
+    rows: [{ kind: 'block', recipeId: 'fastrod', machines: 2, clock: 1, built: true }],
+    enabledRecipeIds: BASE_ONLY,
+  });
+  assert.equal(p.blockRows.length, 1, 'the block is honoured despite its recipe being disabled');
+  assert.ok(p.netOutputRows.some((r) => r.itemId === 'rod'), 'and its output reaches the plan');
+});
