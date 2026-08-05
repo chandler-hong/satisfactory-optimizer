@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - **Test command is `npm test`.** Never `node --test test/` — wrong glob, produces spurious failures.
-- **Baseline is 236 tests passing, `fail 0`.** Every task states its expected count.
+- **Baseline is 226 tests passing, `fail 0`** as of the Built/To-build removal. Task 1 is already
+  implemented and its tests are inside that 226. Every remaining task states its expected count.
 - **`test/fixtures/mini-data.js` and `test/fixtures/iron-chain.js` must NOT be modified.** Where a test needs a recipe a fixture lacks, build a throwaway dataset **inside the test file** — `oreMakerDataset`, `altDataset`, `loopDataset` and `dualOutputDataset` in `test/engine/expansion.test.js` are the established pattern (`{ ...ironChain, recipes: [...ironChain.recipes, extra] }`).
 - **Read rates off `perMin`.** A normalized entry is `{ itemId, perMin, amount }` and the recipe carries `timeSec`; `amount`/`timeSec` exist for the Codex's per-craft display and are not the optimizer's units.
 - **Layering:** `js/engine/**` and `js/domain/**` are pure and must never import from `js/ui/**`. `js/ui/**` is the only DOM-touching layer.
@@ -158,7 +159,7 @@ Note `rawConstraints(...)` moved **above** the `addSupplies` call because `addSu
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: **238 pass, fail 0** (2 new tests). Every pre-existing LP and view-model test must still pass — they are the regression signal for the Optimizer.
+**TASK 1 IS ALREADY IMPLEMENTED** (commit `c325bc6`, with `minRates` reverted in `ffd95b3`). Its two surviving tests are inside the current 226 baseline. This task is recorded here for context; do not re-run it.
 
 - [ ] **Step 6: Commit**
 
@@ -273,7 +274,7 @@ Note `supplyDrawn` reads from `chosen`, not `r1` — the reported build comes fr
 - [ ] **Step 5: Run to verify it passes**
 
 Run: `npm test`
-Expected: **241 pass, fail 0**.
+Expected: **228 pass, fail 0**.
 
 - [ ] **Step 6: Commit**
 
@@ -330,9 +331,9 @@ const planMax = (rows, extra = {}) => planExpansion({
  * takes 100 screw per 4 rotor (25 each), so the most rotors is 3.2/min. rod is
  * built freely from uncapped ore, which is the point — you get told what to add.
  */
-test('planExpansion (max): a Built block bounds the maximum at its own output', () => {
+test('planExpansion (max): a block bounds the maximum at its own output', () => {
   const p = planMax([
-    { kind: 'block', built: true, recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
     { kind: 'max', itemId: 'rotor', weight: 1 },
   ]);
   assert.equal(p.mode, 'max');
@@ -353,7 +354,7 @@ test('planExpansion (max): a Built block bounds the maximum at its own output', 
  */
 test('planExpansion (max): excluding the block output recipe is what bounds it', () => {
   const p = planMax([
-    { kind: 'block', built: true, recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
     { kind: 'max', itemId: 'rotor', weight: 1 },
   ]);
   assert.ok(p.maximize.sets < 100,
@@ -370,7 +371,7 @@ test('planExpansion (max): a declared line that the target does not need is not 
   // A Built ingot block cannot bound rotor here, because rod and screw can both
   // still be built from free ore — so the answer is unbounded, not 30-ingot-sized.
   const p = planMax([
-    { kind: 'block', built: true, recipeId: 'ingot', machines: 1, clock: 1 },
+    { kind: 'block', recipeId: 'ingot', machines: 1, clock: 1 },
     { kind: 'max', itemId: 'rotor', weight: 1 },
   ]);
   assert.equal(p.maximize.bounded, false,
@@ -389,7 +390,7 @@ test('planExpansion (max): a HAVE row is a floor to draw on, not a ceiling', () 
 
 test('planExpansion (max): balanced sets weight the targets against each other', () => {
   const p = planMax([
-    { kind: 'block', built: true, recipeId: 'screw', machines: 4, clock: 1 },
+    { kind: 'block', recipeId: 'screw', machines: 4, clock: 1 },
     { kind: 'max', itemId: 'rotor', weight: 1 },
     { kind: 'max', itemId: 'rod', weight: 2 },
   ]);
@@ -418,7 +419,7 @@ test('blockOutputExclusions: only the primary output is excluded, not a byproduc
       { id: 'aMaker', name: 'aMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 9 }], outputs: [{ itemId: 'a', perMin: 5 }] },
     ],
   };
-  const ex = blockOutputExclusions(twoOut, [{ kind: 'block', built: true, recipeId: 'dualOut', machines: 1, clock: 1 }]);
+  const ex = blockOutputExclusions(twoOut, [{ kind: 'block', recipeId: 'dualOut', machines: 1, clock: 1 }]);
   assert.equal(ex.has('dualOut'), true, 'the declared line itself produces the primary output');
   assert.equal(ex.has('aMaker'), true, 'and so does any other route to that primary output');
   assert.equal(ex.has('bMaker'), false,
@@ -431,15 +432,15 @@ test('blockOutputExclusions: a have row excludes nothing', () => {
 });
 
 test('blockOutputExclusions: a stale or zero-machine block row excludes nothing', () => {
-  const stale = blockOutputExclusions(ironChain, [{ kind: 'block', built: true, recipeId: 'no_such', machines: 2, clock: 1 }]);
+  const stale = blockOutputExclusions(ironChain, [{ kind: 'block', recipeId: 'no_such', machines: 2, clock: 1 }]);
   assert.equal(stale.size, 0, 'an unresolvable recipeId is skipped, matching pinnedBalance');
-  const zero = blockOutputExclusions(ironChain, [{ kind: 'block', built: true, recipeId: 'screw', machines: 0, clock: 1 }]);
+  const zero = blockOutputExclusions(ironChain, [{ kind: 'block', recipeId: 'screw', machines: 0, clock: 1 }]);
   assert.equal(zero.size, 0, 'a zero-load row declares no capacity, so it is not a ceiling');
 });
 
 test('planExpansion: mode defaults to targets, so every existing caller is unaffected', () => {
-  const withoutMode = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }]);
-  const withMode = plan([{ kind: 'block', built: false, recipeId: 'rip', machines: 2, clock: 1 }], { mode: 'targets' });
+  const withoutMode = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const withMode = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }], { mode: 'targets' });
   assert.equal(withoutMode.tiles.machines, withMode.tiles.machines);
   assert.equal(withoutMode.maximize, undefined, 'targets mode carries no maximize readout');
 });
@@ -555,7 +556,7 @@ Add `mode` and `maximize` to the returned object.
 - [ ] **Step 7: Run to verify they pass**
 
 Run: `npm test`
-Expected: **251 pass, fail 0** (10 new). All 241 prior tests must still pass — the `mode = 'targets'` default is what guarantees it. If the balanced-sets test's ratio is off, check that `perPart`'s `rate` is `weight * sets`, not `sets`.
+Expected: **238 pass, fail 0** (10 new). All 228 prior tests must still pass — the `mode = 'targets'` default is what guarantees it. If the balanced-sets test's ratio is off, check that `perPart`'s `rate` is `weight * sets`, not `sets`.
 
 - [ ] **Step 8: Commit**
 
@@ -653,7 +654,7 @@ and include `mode` in the returned object.
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `npm test`
-Expected: **253 pass, fail 0**. The existing `sanitizeState: null / garbage falls back to defaults` test compares against `DEFAULT_STATE`, so adding `mode` there keeps it passing — if it fails, you added `mode` to the return but not to `DEFAULT_STATE`.
+Expected: **240 pass, fail 0**. The existing `sanitizeState: null / garbage falls back to defaults` test compares against `DEFAULT_STATE`, so adding `mode` there keeps it passing — if it fails, you added `mode` to the return but not to `DEFAULT_STATE`.
 
 - [ ] **Step 5: Commit**
 
@@ -867,7 +868,7 @@ python3 -m http.server 8791 >/tmp/httpd.log 2>&1 &
 sleep 2
 ```
 
-Write a throwaway `_probe.html` at the repo root that loads `/` in an iframe, clicks `#tab-expansion`, seeds a Built block plus a max row via `localStorage` with `mode: 'max'`, and reports the headline text, then screenshot it:
+Write a throwaway `_probe.html` at the repo root that loads `/` in an iframe, clicks `#tab-expansion`, seeds a block plus a max row via `localStorage` with `mode: 'max'`, and reports the headline text, then screenshot it:
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
@@ -883,7 +884,7 @@ Delete `_probe.html`, kill the server, and confirm `git status --short` is clean
 
 - [ ] **Step 6: Run the suite and commit**
 
-Run: `npm test` — expected **253 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **240 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css

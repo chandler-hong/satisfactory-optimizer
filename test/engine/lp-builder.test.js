@@ -122,7 +122,7 @@ test('buildTargetRatesModel: a malformed supply is skipped — no variable, no c
   }
 });
 
-// --- buildMaxSetsModel: declared supplies and minimum rates ------------------
+// --- buildMaxSetsModel: declared supplies -----------------------------------
 
 // Expansion maximizes against what the user declared, not against ore, so the
 // max model needs the same capped-supply primitive the target-rates model has.
