@@ -17,7 +17,7 @@ import { renderPlan, renderGoals } from './expansion-render.js';
 
 const STATE_KEY = 'sat-optimizer:expansion:v1';
 const DEFAULT_FILL_MINUTES = 10;
-export const DEFAULT_STATE = { rows: [], goals: [], fillMinutes: DEFAULT_FILL_MINUTES };
+export const DEFAULT_STATE = { rows: [], goals: [], fillMinutes: DEFAULT_FILL_MINUTES, alts: [] };
 
 function el(tag, className) {
   const n = document.createElement(tag);
@@ -56,7 +56,7 @@ function debounce(fn, wait) {
  * outlives code, so an old or hand-edited payload must degrade to defaults rather
  * than throwing during boot.
  */
-export function sanitizeState(raw) {
+export function sanitizeState(raw, knownRecipeIds) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_STATE };
   const rows = [];
   for (const r of Array.isArray(raw.rows) ? raw.rows : []) {
@@ -67,7 +67,16 @@ export function sanitizeState(raw) {
       // Clamped here as well as at the input, so a payload written by an older
       // build, hand-edited, or copied from someone else can't reintroduce a
       // value the live inputs would now refuse.
-      rows.push({ kind: 'block', recipeId: r.recipeId, machines: clampTo(MAX_MACHINES, machines), clock: normalizeClock(r.clock) });
+      rows.push({
+        kind: 'block',
+        recipeId: r.recipeId,
+        machines: clampTo(MAX_MACHINES, machines),
+        clock: normalizeClock(r.clock),
+        // Only an explicit false means To build. Absent (an older payload),
+        // true, or a non-boolean from a hand-edited file all mean Built, which
+        // is the default for a new row.
+        built: r.built !== false,
+      });
     } else if (r.kind === 'want' || r.kind === 'have') {
       const rate = Number(r.rate);
       if (typeof r.itemId !== 'string' || !Number.isFinite(rate)) continue;
@@ -76,11 +85,14 @@ export function sanitizeState(raw) {
   }
   const goals = (Array.isArray(raw.goals) ? raw.goals : []).filter((g) => typeof g === 'string');
   const fill = Number(raw.fillMinutes);
-  return { rows, goals, fillMinutes: Number.isFinite(fill) && fill > 0 ? fill : DEFAULT_FILL_MINUTES };
+  const alts = (Array.isArray(raw.alts) ? raw.alts : [])
+    .filter((id) => typeof id === 'string')
+    .filter((id) => !knownRecipeIds || knownRecipeIds.has(id));
+  return { rows, goals, fillMinutes: Number.isFinite(fill) && fill > 0 ? fill : DEFAULT_FILL_MINUTES, alts };
 }
 
-function loadState() {
-  try { return sanitizeState(JSON.parse(localStorage.getItem(STATE_KEY) || 'null')); }
+function loadState(knownRecipeIds) {
+  try { return sanitizeState(JSON.parse(localStorage.getItem(STATE_KEY) || 'null'), knownRecipeIds); }
   catch { return { ...DEFAULT_STATE }; }
 }
 
@@ -388,7 +400,7 @@ export function buildExpansion(dataset, container) {
   const itemOpts = itemOptions(dataset);
   const recipeById = new Map(dataset.recipes.map((r) => [r.id, r]));
   const enabledRecipeIds = new Set(dataset.recipes.map((r) => r.id));
-  const saved = loadState();
+  const saved = loadState(new Set(dataset.recipes.map((r) => r.id)));
 
   // Unlike the Factory Optimizer (which enables base recipes only by default —
   // see inputs.js's `if (!r.alternate)`), this view solves the upstream demand

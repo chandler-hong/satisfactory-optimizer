@@ -23,7 +23,7 @@ test('sanitizeState: coerces numbers and drops non-numeric rates', () => {
     { kind: 'want', itemId: 'a', rate: 'abc' },
     { kind: 'have', itemId: 'b', rate: '300' },
   ] });
-  assert.deepEqual(s.rows[0], { kind: 'block', recipeId: 'r', machines: 6, clock: 1.5 });
+  assert.deepEqual(s.rows[0], { kind: 'block', recipeId: 'r', machines: 6, clock: 1.5, built: true });
   assert.equal(s.rows.length, 2, 'the non-numeric rate row is dropped');
   assert.deepEqual(s.rows[1], { kind: 'have', itemId: 'b', rate: 300 });
 });
@@ -133,4 +133,31 @@ test('computeExpansionResult: an engine throw is caught and reported as ok:false
   });
   assert.equal(result.ok, false);
   assert.equal(result.error?.message, 'dataset access exploded');
+});
+
+test('sanitizeState: built defaults to true and only an exact false means to-build', () => {
+  const s = sanitizeState({ rows: [
+    { kind: 'block', recipeId: 'a', machines: 1, clock: 1 },
+    { kind: 'block', recipeId: 'b', machines: 1, clock: 1, built: false },
+    { kind: 'block', recipeId: 'c', machines: 1, clock: 1, built: true },
+    { kind: 'block', recipeId: 'd', machines: 1, clock: 1, built: 'false' },
+  ] });
+  assert.deepEqual(s.rows.map((r) => r.built), [true, false, true, true],
+    'absent, true and a non-boolean all mean Built; only false means To build');
+});
+
+test('sanitizeState: alts keeps known recipe id strings and nothing else', () => {
+  const s = sanitizeState({ alts: ['ingot', 42, null, 'not-a-recipe', 'plate'] }, new Set(['ingot', 'plate']));
+  assert.deepEqual(s.alts, ['ingot', 'plate'], 'non-strings and unknown ids are dropped');
+});
+
+test('sanitizeState: alts defaults to empty, so alternates start off', () => {
+  assert.deepEqual(sanitizeState(null).alts, []);
+  assert.deepEqual(sanitizeState({}).alts, []);
+  assert.deepEqual(sanitizeState({ alts: 'nope' }).alts, []);
+});
+
+test('sanitizeState: without a known-id set, alt ids are kept as-is', () => {
+  // The boot path passes the set; callers that don't care skip the filter.
+  assert.deepEqual(sanitizeState({ alts: ['anything'] }).alts, ['anything']);
 });
