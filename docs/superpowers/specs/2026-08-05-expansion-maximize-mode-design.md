@@ -114,6 +114,17 @@ the Optimizer here is the point; this bullet exists so nobody re-implements it.
 **untouched** — max mode differs only in which solver runs and what bounds it. The default
 keeps every existing caller and all 236 tests unaffected.
 
+**A To-build block in max mode still gets its feedstock planned.** `splitDemand`'s `targets`
+map holds both want-row demand and To-build block deficits, and those deficits are real work
+that must happen even while something else is being maximized — but `maxSets` has no notion of
+a minimum rate. So `buildMaxSetsModel` also gains a `minRates` parameter (a `Map<itemId,
+rate>`) that sets `constraints[itemId] = { min: rate }`, mirroring what
+`buildTargetRatesModel` already does for its targets, and max mode passes `targets` into it as
+floors rather than as the objective. Inert by default, so the Optimizer is unaffected. The
+alternative — silently treating every block as Built in max mode — was rejected: this feature
+has already had to fix two display-vs-compute divergences, and a mode switch that quietly
+changes what a row *means* is the same class of trap.
+
 The exclusion set is computed from the block rows: for each row whose recipe resolves, take
 `recipe.outputs[0].itemId` — already how this codebase reads a primary output elsewhere in
 both `js/engine/expansion.js` and `js/ui/expansion.js` — then remove from `enabledRecipeIds`
