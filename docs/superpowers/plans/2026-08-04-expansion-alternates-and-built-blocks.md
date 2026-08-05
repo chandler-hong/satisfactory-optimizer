@@ -921,7 +921,7 @@ git status --short      # expect no untracked files
 
 - [ ] **Step 7: Run the suite and commit**
 
-Run: `npm test` — expected **225 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **226 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css
@@ -1070,7 +1070,7 @@ Keep `saveState` where Task 3 of the previous round put it — **after** the `if
 - [ ] **Step 4: Run the suite**
 
 Run: `npm test`
-Expected: **227 pass, fail 0**.
+Expected: **228 pass, fail 0**.
 
 - [ ] **Step 5: Verify in the browser**
 
