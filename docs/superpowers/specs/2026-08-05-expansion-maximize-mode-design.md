@@ -106,8 +106,8 @@ the Optimizer here is the point; this bullet exists so nobody re-implements it.
 
 | File | Change |
 |---|---|
-| `js/engine/lp-builder.js` | `buildMaxSetsModel` (`:131`) gains a `supplies = []` parameter and calls the existing `addSupplies`, exactly as `buildTargetRatesModel` does at `:119`. Additive; no existing model changes. |
-| `js/engine/optimize.js` | `maxSets` (`:49`) threads `supplies` through to the builder on both passes. |
+| `js/engine/lp-builder.js` | `buildMaxSetsModel` (`:131`) gains a `supplies = []` parameter and calls the existing `addSupplies`, as `buildTargetRatesModel` does at `:119`. **Call order matters:** it must run *before* the `variables[id][SETS] = 0` normalization loop (`:139-141`), so the new supply variables get that coefficient like every other variable. `buildMinRawForSetsModel` needs no change — it delegates to `buildMaxSetsModel(args)`, so the second (min-raw) pass inherits the supplies for free. |
+| `js/engine/optimize.js` | `maxSets` (`:49`) threads `supplies` through to the builder on both passes, and returns a `supplyDrawn` array in the same shape `hitTargets` already returns — one entry per input supply, unfiltered, in input order. §5.2's binding check depends on it. |
 | `js/engine/expansion.js` | `planExpansion` gains `mode: 'targets' \| 'max'`, **defaulting to `'targets'`**. In `'max'` mode it calls `maxSets` instead of `hitTargets` (`:286`), computes the §3.2 exclusion set, and returns the maximize readout of §5.3. |
 
 `splitDemand`, `realize`, `beltReport`, `computeNetOutput`, the raw footer, and the diagram are
@@ -129,9 +129,23 @@ intact. That separation is what makes the exclusion safe to state so bluntly.
 
 If nothing the user declared feeds the target, the LP is bounded only by
 `rawConstraints`' 1e9 clamp and will report a meaningless number. Max mode therefore checks
-whether any declared supply is **binding**, which is not a new concept to compute: the
-existing `supplyUsage` readout already reports `used` and `capped` per declared supply, and
-`capped` is exactly "this supply's cap constraint is tight". Binding means `capped === true`.
+whether any declared supply is **binding**: `used >= rate - EPS`.
+
+**Max mode must compute this itself, from `solved.supplyDrawn`.** It must NOT reuse the
+existing `supplyUsage` readout, for two independent reasons — both verified by reading
+`js/engine/expansion.js`:
+
+1. `supplyUsage` is filtered to `kind === 'have'` (`:387`). A Built block's output enters as
+   `kind: 'pinned'`, so the very supply that bounds a maximize answer never appears there.
+2. Its `capped` flag is `used >= s.rate - EPS && builtItems.has(s.itemId)` (`:384`). That
+   second clause is deliberate for target-rates mode, where "capped" means *you ran dry and
+   had to build more*. In max mode the item's recipes are **excluded** (§3.2), so nothing
+   builds it, `builtItems` cannot contain it, and `capped` is always `false` for exactly the
+   supply we care about — precisely backwards.
+
+`solved.supplyDrawn` is the right source: one entry per input supply, unfiltered, in input
+order (`js/engine/optimize.js`, `hitTargets`), so it pairs positionally with the `supplies`
+array. `maxSets` must return `supplyDrawn` in the same shape for this to work (§5.1).
 
 - **At least one binding** → report the maximum and name what binds it.
 - **None binding** → do not print a rate. Show: *"Your declared lines don't feed
