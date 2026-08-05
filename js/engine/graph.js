@@ -27,7 +27,7 @@ export function buildGraph(dataset, recipeRates, machinesById, targetItemIds, ex
     }
   }
 
-  // `externallyFedLoad` (e.g. the Expansion view's Built blocks — see
+  // `externallyFedLoad` (e.g. the Expansion view's blocks — see
   // js/engine/expansion.js's externallyFedLoad) maps a recipe id to however
   // much of its load is already fed from outside this diagram: a source,
   // exactly like a raw or a have-supply. That load is not necessarily the

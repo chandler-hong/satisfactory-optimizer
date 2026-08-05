@@ -93,14 +93,18 @@ export function pinnedBalance(dataset, blockRows) {
  * Sort the pinned balance and the user's rows into what the LP must solve for and
  * what it gets for free.
  *
- * Raw resources take a separate path in every direction. A block that eats ore
- * directly has no upstream to build, and handing it to the LP as a target would
- * let the ore constraint absorb it — it would then be missing from the raw footer
- * entirely. A block that instead nets a *surplus* of a raw can't be an LP supply
- * either — lp-builder.js's addSupplies unconditionally skips raw supplies, since
- * raw constraints hold net consumption — so it goes to `rawCredit` instead of
- * `supplies`, where it would silently vanish. Likewise a raw HAVE row can't be an
- * LP supply, so it is netted off in the footer instead.
+ * Raw resources take a separate path in every direction. A negative net for a raw
+ * item would have no upstream to build, and handing it to the LP as a target would
+ * let the raw constraint absorb it — it would then be missing from the raw footer
+ * entirely. `pinnedBalance` can't produce one any more — a block contributes gross
+ * output only, never a deficit — so this branch is unreachable from `planExpansion`
+ * today; it stays for `splitDemand`'s own hand-built-map unit tests and for any
+ * future demand source that isn't gross-output-only. A block that instead nets a
+ * *surplus* of a raw can't be an LP supply either — lp-builder.js's addSupplies
+ * unconditionally skips raw supplies, since raw constraints hold net consumption —
+ * so it goes to `rawCredit` instead of `supplies`, where it would silently vanish.
+ * Likewise a raw HAVE row can't be an LP supply, so it is netted off in the footer
+ * instead.
  */
 export function splitDemand(dataset, netPinned, wantRows, haveRows) {
   const raw = dataset.rawResourceIds;
