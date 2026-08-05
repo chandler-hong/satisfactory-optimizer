@@ -48,21 +48,24 @@ export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWas
  */
 export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies };
+  // Built once, up front, so the infeasible early return below carries the same
+  // one-entry-per-input-supply shape as the feasible path — callers zip this
+  // positionally against `supplies` (see js/engine/expansion.js), and a length
+  // mismatch there would silently misalign rather than throw. Unfiltered: a
+  // skipped supply (raw, or a non-positive rate) reports 0 rather than being
+  // omitted, so the array stays aligned with `supplies` either way.
+  const supplyDrawn = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
   const r1 = solveModel(buildMaxSetsModel(args));
-  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn: [] };
+  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn };
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
   const recipeRates = ratesFrom(chosen.values, enabledRecipeIds);
   const perPart = targets.map((t) => ({ itemId: t.itemId, weight: t.weight, rate: (t.weight > 0 ? t.weight : 1) * sets }));
-  // One entry per input supply, in input order, so callers can pair it back up
-  // positionally — same contract hitTargets provides. A skipped supply (raw, or
-  // a non-positive rate) reports 0 rather than being omitted.
-  const supplyDrawn = (supplies || []).map((s) => {
-    const kind = s?.kind === 'pinned' ? 'pinned' : 'have';
-    const used = chosen.values[supplyVarName(s?.itemId, kind)] || 0;
-    return { itemId: s?.itemId, kind, used: Math.round(used * 1e6) / 1e6 };
-  });
+  for (const d of supplyDrawn) {
+    const used = chosen.values[supplyVarName(d.itemId, d.kind)] || 0;
+    d.used = Math.round(used * 1e6) / 1e6;
+  }
   return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn };
 }
 

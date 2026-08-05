@@ -165,3 +165,63 @@ test('maxSets: without the supply the same request is infeasible or zero', () =>
   assert.ok(!r.feasible || r.sets < 1e-6, `no screw source means no rotors, got ${r.sets}`);
   assert.deepEqual(r.supplyDrawn, [], 'and nothing was drawn');
 });
+
+/**
+ * The tests above disable the recipe for the supplied item, leaving the
+ * supply as its sole source — both passes are then forced to draw the same
+ * amount, which cannot tell `chosen` (the min-raw pass) apart from `r1` (the
+ * max-sets pass). Here, `screw`'s recipe stays enabled, so both sources
+ * exist. `plate`'s recipe is disabled and its supply capped at 20, which
+ * hard-pins sets at 20 on its own — pass 1 (max sets) is indifferent to how
+ * screw gets sourced once that cap is hit, but pass 2 (min raw, at sets=20)
+ * still strictly prefers the near-free screw supply over ore-costing recipe
+ * screw. This is what actually pins "supplyDrawn is read off the min-raw
+ * pass, not the max-sets pass".
+ */
+test('maxSets: supplyDrawn reflects the min-raw pass, not the max-sets pass', () => {
+  const noPlateRecipe = new Set([...ALL_IRON_RECIPES].filter((id) => id !== 'plate'));
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(1000),
+    enabledRecipeIds: noPlateRecipe,
+    targets: [{ itemId: 'plate', weight: 1 }, { itemId: 'screw', weight: 1 }],
+    supplies: [
+      { itemId: 'plate', rate: 20, kind: 'pinned' },
+      { itemId: 'screw', rate: 8, kind: 'have' },
+    ],
+  });
+  assert.equal(r.feasible, true);
+  assert.ok(Math.abs(r.sets - 20) < 1e-6, `plate's own supply hard-caps sets at 20, got ${r.sets}`);
+  const screw = r.supplyDrawn.find((d) => d.itemId === 'screw');
+  assert.ok(Math.abs(screw.used - 8) < 1e-6, `expected the cheap screw supply fully drawn, got ${screw.used}`);
+});
+
+test('maxSets: supplyDrawn keeps one entry per input supply even when infeasible', () => {
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(-10), // negative cap: every ore-touching recipe becomes infeasible
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'mf', weight: 1 }],
+    supplies: [{ itemId: 'screw', rate: 40, kind: 'have' }],
+  });
+  assert.equal(r.feasible, false, 'a negative ore cap makes every ore-touching recipe infeasible');
+  assert.deepEqual(r.supplyDrawn, [{ itemId: 'screw', kind: 'have', used: 0 }]);
+});
+
+test('maxSets: an unneeded supply reports zero rather than being dropped', () => {
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(360),
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'rotor', weight: 1 }],
+    supplies: [
+      { itemId: 'plate', rate: 50, kind: 'pinned' }, // rotor's chain never touches plate
+      { itemId: 'screw', rate: 40, kind: 'have' },
+    ],
+  });
+  assert.equal(r.feasible, true);
+  assert.equal(r.supplyDrawn.length, 2, 'both entries present, in input order');
+  assert.deepEqual(r.supplyDrawn[0], { itemId: 'plate', kind: 'pinned', used: 0 }, 'unneeded, but not dropped');
+  assert.equal(r.supplyDrawn[1].itemId, 'screw');
+  assert.ok(r.supplyDrawn[1].used > 1e-6, `expected screw to be used, got ${r.supplyDrawn[1].used}`);
+});
