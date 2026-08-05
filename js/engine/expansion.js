@@ -306,20 +306,30 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // A Built block, though, is a source in the diagram, not a consumer of its
   // own inputs — pinnedBalance's Built branch above already treats its
   // feedstock as covered externally, and the graph must agree or it
-  // disagrees with the balance the rest of the plan is built from. So
-  // builtRecipeIds collects the recipe id of every valid, nonzero-load Built
-  // (not explicitly `built: false`) row here, for buildGraph to treat as a
-  // producer-only source: a node and its output edges, but no input
-  // edges/demand (js/ui/expansion-render.js passes this straight through).
+  // disagrees with the balance the rest of the plan is built from. But a
+  // recipe id's merged graphRates load can come from more than one row (a
+  // block and the LP, or two block rows on the same recipe id — see the
+  // "sum a block and the LP" test below), and only part of that load may be
+  // Built. A Set of "is this recipe id fed" would be too coarse: it would
+  // treat the WHOLE merged load as fed even when only part of it is, which
+  // would silently drop the real, non-Built share's input demand too.
+  // externallyFedLoad instead maps each recipe id to the SUM of its Built
+  // (not explicitly `built: false`) rows' own load — using the same
+  // blockLoad resolution and validity/nonzero test as the merge loop below,
+  // so it always agrees with graphRates on which rows count. buildGraph then
+  // treats only that much of the recipe's load as a producer-only source (a
+  // node and its output edges, but no input edges/demand for that share);
+  // any remainder is wired in-graph like any other consumer
+  // (js/ui/expansion-render.js passes this straight through).
   const graphRates = new Map(recipeRates);
   const graphMachinesById = new Map(machinesById);
-  const builtRecipeIds = new Set();
+  const externallyFedLoad = new Map();
   for (const b of blockRows) {
     const resolved = blockLoad(byId, b);
     if (!resolved || resolved.load <= 0) continue;
     add(graphRates, resolved.recipe.id, resolved.load);
     add(graphMachinesById, resolved.recipe.id, resolved.machines);
-    if (b?.built !== false) builtRecipeIds.add(resolved.recipe.id);
+    if (b?.built !== false) add(externallyFedLoad, resolved.recipe.id, resolved.load);
   }
 
   const buildRows = phys.perRecipe
@@ -376,8 +386,9 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
 
   const blockView = blockRows
     .map((b) => {
-      const recipe = byId.get(b.recipeId);
-      if (!recipe) return null;
+      const resolved = blockLoad(byId, b);
+      if (!resolved || resolved.load <= 0) return null;
+      const { recipe, machines } = resolved;
       const building = dataset.buildings.get(recipe.buildingId);
       const outId = recipe.outputs?.[0]?.itemId;
       return {
@@ -385,7 +396,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         recipeName: recipe.name,
         buildingName: building?.name ?? '',
         buildingSlug: building?.slug,
-        machines: Math.max(0, Number(b.machines) || 0),
+        machines,
         clockPct: Math.floor(normalizeClock(b.clock) * 100 + 1e-6),
         itemName: outId ? nameOf(dataset, outId) : '',
         itemSlug: outId ? slugOf(dataset, outId) : undefined,
@@ -449,10 +460,12 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // where these are built for why they must stay separate from the pair above.
     graphRates,
     graphMachinesById,
-    // Recipe ids fed by a Built block (see above) — passed to buildGraph by
-    // js/ui/expansion-render.js as the externally-fed set, so the diagram
-    // treats them as sources instead of consumers of their own inputs.
-    builtRecipeIds,
+    // Per-recipe Built load (see above) — passed to buildGraph by
+    // js/ui/expansion-render.js as the externally-fed load, so the diagram
+    // treats that much of each recipe's load as a source instead of a
+    // consumer of its own inputs, even when only part of the recipe's merged
+    // load is Built.
+    externallyFedLoad,
     buildRows,
     machineTotals: [...totalsByBuilding.values()].sort((a, b) => b.machines - a.machines),
     blockRows: blockView,

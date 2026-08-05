@@ -222,10 +222,67 @@ test("planExpansion: a Built block's own recipe is a source in the diagram, not 
   ]);
   assert.equal(rateOf(p.netOutput, 'plate'), 40, "sanity: the Built block's gross output");
   assert.equal(rateOf(p.netOutput, 'ingot'), 30, 'sanity: the want is met');
-  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.builtRecipeIds);
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
   assert.ok(graph.nodes.some((n) => n.id === 'out:ingot'), 'ingot leaves the system just like netOutput promises');
   assert.ok(!graph.edges.some((e) => e.from === 'ingot' && e.to === 'plate'),
     "plate's ingot appetite is covered externally, not drawn from the ingot recipe in-graph");
+});
+
+// Round-2 regression: the guard above skips ALL input processing for a
+// recipe id once ANY Built row touches it, which is right for a pure Built
+// recipe but wrong once graphRates' merge (see "sum a block and the LP"
+// above) puts a genuine non-Built share of load onto that SAME recipe id.
+// Here the Built block covers only 30 of the 100 rod/min wanted, so the LP
+// must build 70 rod/min of its own capacity on top of it; that LP share is a
+// real consumer of ingot and must still show as one, not vanish into a
+// phantom ingot surplus.
+test("planExpansion: the diagram still wires a recipe's non-Built share when a Built block covers only part of it", () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rod', machines: 2, clock: 1, built: true },
+    { kind: 'want', itemId: 'rod', rate: 100 },
+  ]);
+  assert.equal(rawFor(p, 'ore').needed, 70, 'sanity: only the LP-built 70 rod/min needs fresh ore');
+  assert.equal(machinesOf(p, 'ingot'), 3, 'sanity: ingot capacity for that 70 rod/min, rounded up to whole machines');
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
+  assert.ok(graph.edges.some((e) => e.from === 'ingot' && e.to === 'rod'),
+    "the LP's 70 rod/min share is a genuine in-graph consumer of ingot");
+  assert.ok(!graph.nodes.some((n) => n.id === 'sur:ingot'),
+    'so ingot nets to zero rather than faking a surplus for the ingot the LP-built rod machines actually consume');
+});
+
+// Same bug, reached a different way: two block ROWS on one recipe id, one
+// Built and one To-build, merge into a single graphRates entry — this is the
+// same merge as "sum a block and the LP" above, just with a Built row on one
+// side instead of the LP. Only the Built row's 2-machine share is externally
+// fed; the To-build row's 3 machines are a real consumer that must still
+// draw an in-graph ingot edge.
+test("planExpansion: the diagram still wires a To-build block's share when a Built block on the same recipe id covers the rest", () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rod', machines: 2, clock: 1, built: true },
+    { kind: 'block', recipeId: 'rod', machines: 3, clock: 1, built: false },
+  ]);
+  assert.equal(rawFor(p, 'ore').needed, 45, "sanity: only the To-build row's 3 machines need fresh ore");
+  assert.equal(machinesOf(p, 'ingot'), 2, "sanity: ingot capacity for the To-build row's 3 rod machines");
+  const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
+  assert.ok(graph.edges.some((e) => e.from === 'ingot' && e.to === 'rod'),
+    "the To-build row's 3-machine share is a genuine in-graph consumer of ingot");
+  assert.ok(!graph.nodes.some((n) => n.id === 'sur:ingot'),
+    "so ingot nets to zero rather than faking a surplus for the ingot the To-build row's rod machines actually consume");
+});
+
+// externallyFedLoad itself (renamed from the old builtRecipeIds Set to a
+// Map<recipeId, load> — see js/engine/expansion.js's comment on it) had no
+// direct test, only indirect coverage through the graph-shape tests above.
+// Pin its contents directly for a mixed plan: a Built row and a To-build row
+// on different recipes, so one recipe id should appear in the map and the
+// other should not.
+test('planExpansion: externallyFedLoad holds only the Built share, keyed by recipe id', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'rod', machines: 2, clock: 1, built: true },
+    { kind: 'block', recipeId: 'ingot', machines: 4, clock: 1, built: false },
+  ]);
+  assert.equal(p.externallyFedLoad.get('rod'), 2, "the Built row's own machine-equivalent load");
+  assert.equal(p.externallyFedLoad.has('ingot'), false, 'the To-build row contributes no externally-fed load');
 });
 
 test('planExpansion: a block feeding another needs no upstream for the intermediate', () => {
@@ -627,6 +684,19 @@ test('planExpansion: blockRows report which kind each block is', () => {
     { kind: 'block', recipeId: 'screw', machines: 1, clock: 1 },  // no `built` key at all: a legacy row, defaults to Built
   ]);
   assert.deepEqual(p.blockRows.map((r) => r.built), [true, false, true]);
+});
+
+// blockRows (blockView) is a display-only remap of the raw block rows, not
+// filtered by validity the way pinnedBalance and the graphRates merge above
+// both are via blockLoad's `load <= 0` check — so a `machines: 0` row used to
+// render in "Your blocks" as a live 0-machine entry instead of being dropped
+// like every other zero-load row in the plan.
+test('planExpansion: blockRows drops a zero-machines row, consistent with pinnedBalance and the graph merge', () => {
+  const p = plan([
+    { kind: 'block', recipeId: 'ingot', machines: 0, clock: 1, built: true },
+    { kind: 'block', recipeId: 'rod', machines: 1, clock: 1, built: true },
+  ]);
+  assert.deepEqual(p.blockRows.map((r) => r.recipeId), ['rod'], 'the zero-machines ingot row is dropped, the real rod row stays');
 });
 
 // Added after Task 2's review: annotating all 38 existing rows To-build left the
