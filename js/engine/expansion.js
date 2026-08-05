@@ -1,6 +1,6 @@
 /**
- * Expansion planner: you declare machine blocks you have or plan to build plus
- * whatever is already on your bus, and this works out what has to feed them.
+ * Expansion planner: you declare machine blocks you already have plus whatever
+ * is already on your bus, and this works out what has to feed them.
  *
  * The Factory Optimizer solves the other direction — given ore nodes, maximize
  * output — which forces you to model the whole factory from ore up every time you
@@ -64,13 +64,12 @@ function blockLoad(byId, b) {
 }
 
 /**
- * Net per-minute balance across every block row at its declared machine count and
- * clock. Positive = the blocks make a surplus; negative = something upstream has
- * to cover the difference — that's the To-build half. A Built row (the default)
- * instead contributes gross output only, since its inputs are already fed
- * externally, so it can only add surplus, never register as a deficit.
+ * Gross per-minute output across every block row at its declared machine count
+ * and clock. A block is already built and already fed, so only what leaves it
+ * enters the plan — its own feedstock is covered externally by definition and
+ * never shows up here, not even as a deficit.
  * @param {Dataset} dataset
- * @param {{recipeId: string, machines: number, clock?: number, built?: boolean}[]} blockRows
+ * @param {{recipeId: string, machines: number, clock?: number}[]} blockRows
  * @returns {Map<string, number>}
  */
 export function pinnedBalance(dataset, blockRows) {
@@ -80,18 +79,11 @@ export function pinnedBalance(dataset, blockRows) {
     const resolved = blockLoad(byId, b);
     if (!resolved || resolved.load <= 0) continue;
     const { recipe, load } = resolved;
-    if (b?.built === false) {
-      // To build: net the two sides, so the feedstock comes out negative and
-      // splitDemand turns it into an LP target.
-      for (const itemId of touched(recipe)) add(net, itemId, load * netPerMin(recipe, itemId));
-    } else {
-      // Built: the machines exist and are already fed, so only what leaves them
-      // enters the plan. Gross output, NOT max(0, net) — for a recipe with an
-      // item on both sides the input side is covered externally by definition,
-      // so the whole output rate is genuinely available and netting would
-      // under-report it. Entries already carry per-minute rates (normalize.js).
-      for (const o of recipe.outputs || []) add(net, o.itemId, load * o.perMin);
-    }
+    // A block is already built and already fed, so only what leaves it enters
+    // the plan. Gross output, NOT max(0, net) — for a recipe with an item on
+    // both sides the input side is covered externally by definition, so the
+    // whole output rate is available. Entries carry per-minute rates already.
+    for (const o of recipe.outputs || []) add(net, o.itemId, load * o.perMin);
   }
   for (const [k, v] of net) net.set(k, round6(v));
   return net;
@@ -305,24 +297,22 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // Skips a stale recipeId exactly like pinnedBalance, and a zero-load row
   // (0 machines) exactly like pinnedBalance.
   //
-  // A Built block, though, is a source in the diagram, not a consumer of its
-  // own inputs — pinnedBalance's Built branch above already treats its
-  // feedstock as covered externally, and the graph must agree or it
-  // disagrees with the balance the rest of the plan is built from. But a
-  // recipe id's merged graphRates load can come from more than one row (a
-  // block and the LP, or two block rows on the same recipe id — see the
-  // "sum a block and the LP" test below), and only part of that load may be
-  // Built. A Set of "is this recipe id fed" would be too coarse: it would
-  // treat the WHOLE merged load as fed even when only part of it is, which
-  // would silently drop the real, non-Built share's input demand too.
-  // externallyFedLoad instead maps each recipe id to the SUM of its Built
-  // (not explicitly `built: false`) rows' own load — using the same
+  // A block, though, is a source in the diagram, not a consumer of its own
+  // inputs — pinnedBalance already treats every block's feedstock as covered
+  // externally, and the graph must agree or it disagrees with the balance
+  // the rest of the plan is built from. But a recipe id's merged graphRates
+  // load can come from more than one row (a block and the LP, or two block
+  // rows on the same recipe id — see the "sum a block and the LP" test
+  // below), and buildGraph needs to know how much of that merged load is
+  // externally fed versus a genuine in-graph consumer. externallyFedLoad
+  // maps each recipe id to the SUM of its blocks' own load — using the same
   // blockLoad resolution and validity/nonzero test as the merge loop below,
   // so it always agrees with graphRates on which rows count. buildGraph then
-  // treats only that much of the recipe's load as a producer-only source (a
-  // node and its output edges, but no input edges/demand for that share);
-  // any remainder is wired in-graph like any other consumer
-  // (js/ui/expansion-render.js passes this straight through).
+  // treats that much of the recipe's load as a producer-only source (a node
+  // and its output edges, but no input edges/demand for that share); any
+  // remainder (the LP's own share of the same recipe id) is wired in-graph
+  // like any other consumer (js/ui/expansion-render.js passes this straight
+  // through).
   const graphRates = new Map(recipeRates);
   const graphMachinesById = new Map(machinesById);
   const externallyFedLoad = new Map();
@@ -331,7 +321,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     if (!resolved || resolved.load <= 0) continue;
     add(graphRates, resolved.recipe.id, resolved.load);
     add(graphMachinesById, resolved.recipe.id, resolved.machines);
-    if (b?.built !== false) add(externallyFedLoad, resolved.recipe.id, resolved.load);
+    add(externallyFedLoad, resolved.recipe.id, resolved.load);
   }
 
   const buildRows = phys.perRecipe
@@ -402,7 +392,6 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         clockPct: Math.floor(normalizeClock(b.clock) * 100 + 1e-6),
         itemName: outId ? nameOf(dataset, outId) : '',
         itemSlug: outId ? slugOf(dataset, outId) : undefined,
-        built: b.built !== false,
       };
     })
     .filter(Boolean);
@@ -462,11 +451,11 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // where these are built for why they must stay separate from the pair above.
     graphRates,
     graphMachinesById,
-    // Per-recipe Built load (see above) — passed to buildGraph by
+    // Per-recipe externally-fed load (see above) — passed to buildGraph by
     // js/ui/expansion-render.js as the externally-fed load, so the diagram
     // treats that much of each recipe's load as a source instead of a
     // consumer of its own inputs, even when only part of the recipe's merged
-    // load is Built.
+    // load comes from a block.
     externallyFedLoad,
     buildRows,
     machineTotals: [...totalsByBuilding.values()].sort((a, b) => b.machines - a.machines),

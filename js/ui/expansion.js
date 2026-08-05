@@ -1,5 +1,5 @@
 /**
- * Expansion view: declare the machine blocks you have or plan to build and whatever
+ * Expansion view: declare the machine blocks you already have and whatever
  * is already on your bus, and see what has to feed them.
  *
  * DOM only — all arithmetic lives in js/engine/expansion.js. The eight report
@@ -38,7 +38,6 @@ function el(tag, className) {
 const MAX_MACHINES = 9999;
 const MAX_RATE = 1e6;
 const clampTo = (max, value) => Math.min(max, Math.max(0, Number(value) || 0));
-let nextBlockRowId = 0;
 
 /**
  * Delay invoking `fn` until `wait` ms after the last call. js/main.js has its
@@ -74,10 +73,6 @@ export function sanitizeState(raw, knownRecipeIds) {
         recipeId: r.recipeId,
         machines: clampTo(MAX_MACHINES, machines),
         clock: normalizeClock(r.clock),
-        // Only an explicit false means To build. Absent (an older payload),
-        // true, or a non-boolean from a hand-edited file all mean Built, which
-        // is the default for a new row.
-        built: r.built !== false,
       });
     } else if (r.kind === 'want' || r.kind === 'have') {
       const rate = Number(r.rate);
@@ -199,27 +194,7 @@ function makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange) {
   removeBtn.type = 'button';
   removeBtn.textContent = 'Remove';
   removeBtn.style.marginLeft = 'auto';
-  // Each row's radios need their own group name, or picking Built in one row
-  // would clear it in every other row.
-  const groupName = `exp-built-${nextBlockRowId++}`;
-  const builtWrap = el('span', 'exp-built');
-  const builtOn = initial?.built !== false;
-  const builtRadio = el('input');
-  builtRadio.type = 'radio';
-  builtRadio.name = groupName;
-  builtRadio.checked = builtOn;
-  const builtOpt = el('label', 'exp-built__opt');
-  builtOpt.append(builtRadio, document.createTextNode(' Built'));
-  const planRadio = el('input');
-  planRadio.type = 'radio';
-  planRadio.name = groupName;
-  planRadio.checked = !builtOn;
-  const planOpt = el('label', 'exp-built__opt');
-  planOpt.append(planRadio, document.createTextNode(' To build'));
-  builtWrap.append(builtOpt, planOpt);
-  builtRadio.addEventListener('change', onChange);
-  planRadio.addEventListener('change', onChange);
-  foot.append(machinesLabel, machinesInput, clockLabel, clockInput, buildingLabel, builtWrap, removeBtn);
+  foot.append(machinesLabel, machinesInput, clockLabel, clockInput, buildingLabel, removeBtn);
   row.appendChild(foot);
 
   function refreshBuildingLabel() {
@@ -241,7 +216,6 @@ function makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange) {
       recipeId: picker.getValue(),
       machines: clampTo(MAX_MACHINES, machinesInput.value),
       clock: (Number(clockInput.value) || 0) / 100,
-      built: builtRadio.checked,
     }),
   };
 }
@@ -517,7 +491,7 @@ export function buildExpansion(dataset, container) {
   const blockSection = buildRowSection(
     rowsPane,
     'Blocks',
-    'Machine blocks in your plan. Built ones are assumed already fed, so only what they make counts. To-build ones get their feedstock planned too.',
+    'Machines you already have. Their feedstock is assumed to be flowing, so only what they make counts toward the plan.',
     '+ Add block',
     (initial, onChange) => makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange),
     scheduleRecompute,

@@ -51,32 +51,10 @@ function renderMachineTotalsPanel(totals) {
   return section;
 }
 
-/**
- * "Your blocks" is the one build-table caller that needs a column the shared
- * BUILD_COLUMNS spec doesn't have (Kind: Built vs To build), so rather than
- * add a key to that shared spec for one caller, the base four columns come
- * from buildTable/BUILD_COLUMNS as usual and the Kind column is appended
- * onto the resulting table here — leaving report-panels.js, and every other
- * caller of buildTable, untouched.
- */
 function renderYourBlocksPanel(rows) {
   if (!rows || rows.length === 0) return null;
   const section = panel('Your blocks');
-  const table = buildTable(rows, ['building', 'recipe', 'machines', 'clock']);
-  const kindTh = el('th');
-  kindTh.textContent = 'Kind';
-  table.querySelector('thead tr').appendChild(kindTh);
-  const bodyRows = table.querySelectorAll('tbody tr');
-  rows.forEach((row, i) => {
-    const td = el('td');
-    // Built vs To build, so the panel doesn't read as one undifferentiated list —
-    // only the To-build rows have had their feedstock planned.
-    const kind = el('span', row.built ? 'chip' : 'chip chip--warning');
-    kind.textContent = row.built ? 'Built' : 'To build';
-    td.appendChild(kind);
-    bodyRows[i].appendChild(td);
-  });
-  section.appendChild(table);
+  section.appendChild(buildTable(rows, ['building', 'recipe', 'machines', 'clock']));
   return section;
 }
 
@@ -178,13 +156,12 @@ function renderBeltsPanel(rows) {
  * planExpansion: buildGraph is pure and dataset-shaped, so there's no reason
  * to route it through the engine return value just to hand it straight back.
  *
- * Also passes plan.externallyFedLoad so a Built block's share of a recipe's
- * merged load renders as a source (a node plus its output edges only) rather
- * than a consumer of its own inputs, even when the rest of that same
- * recipe's merged load is a To-build block or the LP — see
- * js/engine/expansion.js's comment on externallyFedLoad and
- * js/engine/graph.js's buildGraph for why that distinction has to survive
- * into the diagram.
+ * Also passes plan.externallyFedLoad so a block's share of a recipe's merged
+ * load renders as a source (a node plus its output edges only) rather than a
+ * consumer of its own inputs, even when the LP independently solves that same
+ * recipe to cover a shortfall — see js/engine/expansion.js's comment on
+ * externallyFedLoad and js/engine/graph.js's buildGraph for why that
+ * distinction has to survive into the diagram.
  */
 function renderDiagramPanel(dataset, plan) {
   const graph = buildGraph(dataset, plan.graphRates, plan.graphMachinesById, [...plan.netOutput.keys()], plan.externallyFedLoad);
