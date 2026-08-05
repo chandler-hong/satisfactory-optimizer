@@ -19,7 +19,7 @@
 - **No `innerHTML`/`outerHTML`/`insertAdjacentHTML`** with dataset-derived strings. Use `textContent`, or `img.src`/`img.alt` property assignment.
 - **No new dependencies.** The repo is zero-dependency by design; `package.json` exists only for the test runner.
 - **CSS custom properties available:** `--surface`, `--border`, `--ink`, `--ink-muted`, `--accent`, `--accent-ink`, `--good`, `--warning`, `--critical`. There is no `--text-dim`. Both themes define the same names (`css/styles.css:14-38`).
-- **Working directly on `main`** is the established pattern for this repo (documented standing consent). Commit per task; do not push.
+- **This plan runs on the branch `expansion-alternates-and-built-blocks`** (branched from `main` @ `33c342d`), unlike previous rounds which worked directly on `main` — six tasks is enough to want a clean rewind. Commit per task; do not push; do not merge.
 - **Alternates are OFF by default** in both views.
 - **A block row may be declared on any recipe**, including an alternate that is unchecked. `enabledRecipeIds` gates what the LP may *choose*, never what the user may *declare*.
 - There is **no DOM shim** in the test suite. Tests cover pure exports only; DOM is verified by running the app with a throwaway `_probe.html` which must be deleted before committing.
@@ -739,7 +739,7 @@ That row now also carries `built`. Add the field to the **expected** object rath
 - [ ] **Step 5: Run to verify all pass**
 
 Run: `npm test`
-Expected: **219 pass, fail 0**.
+Expected: **225 pass, fail 0**.
 
 - [ ] **Step 6: Commit**
 
@@ -921,7 +921,7 @@ git status --short      # expect no untracked files
 
 - [ ] **Step 7: Run the suite and commit**
 
-Run: `npm test` — expected **219 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **225 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css
@@ -1070,7 +1070,7 @@ Keep `saveState` where Task 3 of the previous round put it — **after** the `if
 - [ ] **Step 4: Run the suite**
 
 Run: `npm test`
-Expected: **221 pass, fail 0**.
+Expected: **227 pass, fail 0**.
 
 - [ ] **Step 5: Verify in the browser**
 
