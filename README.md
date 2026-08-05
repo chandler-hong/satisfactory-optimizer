@@ -28,7 +28,7 @@ per-craft amounts, the building, and craft time), and how each recipe is unlocke
 milestone, MAM research, or hard drive). Click any ingredient to jump to its own entry.
 
 **Expansion:** planning in the other direction — instead of "what can my ore make?", start
-from what you've *decided to build*. Declare your blocks (6× Assembler making Motors, at
+from the factory you already have. Declare your blocks (6× Assembler making Motors, at
 whatever clock), any flat extra demand, and whatever is already on your bus, and it works
 out the upstream: what to build to feed it, the machine totals, the net output leaving the
 factory, how much of your existing supply gets used (and whether it runs out), the raw
@@ -37,10 +37,19 @@ diagram. Tick a HUB milestone or Space Elevator phase and it checks the plan aga
 goal's cost, showing what's still uncovered and roughly how long the plan takes to fill it —
 with a one-click button to turn the gaps into demand rows.
 
-Two things to know about the Expansion view: it assumes **every alternate recipe is
-unlocked** (there's no picker there yet, so it can prescribe a recipe you don't have — the
-Factory Optimizer starts with alternates off if you want that comparison), and it uses the
-default belt tier rather than the Optimizer's sidebar setting, so line counts assume Mk.4.
+Each block is either **Built** or **To build**, and the difference is the whole point. A
+Built block already exists and is already fed, so only what it *makes* enters the plan —
+declare your existing Motor line, ask for Modular Engines, and you get the Rubber and Smart
+Plating to add, not the Rotors and ore already flowing. A To-build block gets its feedstock
+planned upstream too. New blocks default to Built.
+
+The Expansion view has its own alternate-recipe picker, starting with all of them off, so it
+won't prescribe a recipe you haven't unlocked. It's independent of the Optimizer's picker —
+the two views can hold different sets, which is useful for testing a hypothesis in one
+without disturbing a real plan in the other. Note the picker governs what the *planner may
+choose*, not what you may *declare*: a block row can name any recipe you actually have,
+enabled or not. One caveat remains — the view uses the default belt tier rather than the
+Optimizer's sidebar setting, so line counts assume Mk.4.
 
 ## Run the app
 
