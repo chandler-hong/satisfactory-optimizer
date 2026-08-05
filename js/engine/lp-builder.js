@@ -128,7 +128,7 @@ export const SETS = '_sets_';
  * contributes -weight to each target item's balance constraint.
  * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[], noWaste?:boolean}} args
  */
-export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [], minRates = new Map() }) {
+export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);
   const nVar = { [SETS]: 1, [RAWCOST]: 0 };
   for (const t of targets) {
@@ -146,13 +146,6 @@ export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, no
   }
   for (const i of touchedNonRaw) {
     constraints[i] = noWaste ? { equal: 0 } : { min: 0 };
-  }
-  // A floor on an item the caller must still satisfy — Expansion's max mode uses
-  // this for a To-build block's feedstock, which has to be planned even while
-  // something else is being maximized. Applied last so it wins over the { min: 0 }
-  // default above.
-  for (const [itemId, rate] of minRates) {
-    if (Number.isFinite(rate) && rate > 0) constraints[itemId] = { min: rate };
   }
   return { optimize: SETS, opType: 'max', constraints, variables };
 }
