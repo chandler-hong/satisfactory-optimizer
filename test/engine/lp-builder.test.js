@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, supplyVarName, OBJ, RAWCOST } from '../../js/engine/lp-builder.js';
+import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, supplyVarName, OBJ, RAWCOST, SETS } from '../../js/engine/lp-builder.js';
+import { ironChain, ALL_IRON_RECIPES, capsIron } from '../fixtures/iron-chain.js';
 
 // tiny synthetic dataset: ore(raw) -> ingot -> plate
 const io = (itemId, perMin) => ({ itemId, perMin });
@@ -119,4 +120,54 @@ test('buildTargetRatesModel: a malformed supply is skipped — no variable, no c
     assert.ok(!Object.keys(m.variables).some((k) => k.startsWith('_supply_')), `${label}: no supply variable should be created`);
     assert.ok(!Object.keys(m.constraints).some((k) => k.startsWith('_supcap_')), `${label}: no cap constraint should be created`);
   }
+});
+
+// --- buildMaxSetsModel: declared supplies and minimum rates ------------------
+
+// Expansion maximizes against what the user declared, not against ore, so the
+// max model needs the same capped-supply primitive the target-rates model has.
+test('buildMaxSetsModel: a declared supply becomes a capped variable', () => {
+  const m = buildMaxSetsModel({
+    dataset: ironChain,
+    caps: capsIron(0),
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'rotor', weight: 1 }],
+    supplies: [{ itemId: 'screw', rate: 80, kind: 'pinned' }],
+  });
+  const capKey = '_supcap_pinned_screw';
+  assert.deepEqual(m.constraints[capKey], { max: 80 }, 'the supply is capped at its rate');
+  const supVar = Object.keys(m.variables).find((k) => m.variables[k][capKey] === 1);
+  assert.ok(supVar, 'a supply variable exists and consumes the cap');
+  assert.equal(m.variables[supVar].screw, 1, 'and it contributes to the screw balance');
+  assert.equal(m.variables[supVar][SETS], 0,
+    'addSupplies must run BEFORE the SETS normalization loop, or this coefficient is missing');
+});
+
+test('buildMaxSetsModel: minRates forces a floor on an item, not the default min 0', () => {
+  const m = buildMaxSetsModel({
+    dataset: ironChain,
+    caps: capsIron(360),
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'rotor', weight: 1 }],
+    minRates: new Map([['plate', 25]]),
+  });
+  assert.deepEqual(m.constraints.plate, { min: 25 }, 'the floor replaces the default { min: 0 }');
+  assert.deepEqual(m.constraints.rod, { min: 0 }, 'an item with no floor is untouched');
+});
+
+// Both params are additive and shared with the live Factory Optimizer, so the
+// omitted-argument model must be byte-identical to what it was before.
+test('buildMaxSetsModel: omitting supplies and minRates changes nothing', () => {
+  const args = {
+    dataset: ironChain,
+    caps: capsIron(360),
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'mf', weight: 1 }],
+  };
+  const bare = buildMaxSetsModel(args);
+  const explicit = buildMaxSetsModel({ ...args, supplies: [], minRates: new Map() });
+  assert.equal(JSON.stringify(bare), JSON.stringify(explicit),
+    'an empty supplies array and an empty minRates map are inert');
+  assert.equal(Object.keys(bare.constraints).some((k) => k.startsWith('_supcap_')), false,
+    'and no supply-cap constraint appears');
 });
