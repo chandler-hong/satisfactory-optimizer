@@ -101,6 +101,23 @@ test('splitDemand: two raw HAVE rows for the same item still sum into rawSupplie
   assert.equal(rateOf(rawSupplied, 'ore'), 480, 'the branch we did not touch keeps aggregating');
 });
 
+/**
+ * The multi-level whole-machine cascade, and the suite's only multi-machine
+ * tiles.machines guard. Previously driven by a To-build block's feedstock;
+ * a want row creates the same demand now that blocks no longer do. Without
+ * this, clamping tiles.machines to Math.min(1, …) passes the whole suite.
+ */
+test('planExpansion: a want explodes to whole upstream machines', () => {
+  const p = plan([{ kind: 'want', itemId: 'rip', rate: 10 }]);
+  assert.equal(p.feasible, true);
+  assert.equal(machinesOf(p, 'plate'), 3);
+  assert.equal(machinesOf(p, 'screw'), 3);
+  assert.equal(machinesOf(p, 'rod'), 2);
+  assert.equal(machinesOf(p, 'ingot'), 4);
+  assert.equal(machinesOf(p, 'rip'), 2, 'the LP builds the rip machines too, now that no block pins them');
+  assert.equal(p.tiles.machines, 14);
+});
+
 // recipeRates/machinesById feed buildGraph (js/engine/graph.js) for the
 // Expansion view's diagram, and were added alongside it. Checked
 // against buildRows rather than hardcoded numbers: buildRows is already
