@@ -66,9 +66,11 @@ function blockLoad(byId, b) {
 /**
  * Net per-minute balance across every block row at its declared machine count and
  * clock. Positive = the blocks make a surplus; negative = something upstream has
- * to cover the difference.
+ * to cover the difference — that's the To-build half. A Built row (the default)
+ * instead contributes gross output only, since its inputs are already fed
+ * externally, so it can only add surplus, never register as a deficit.
  * @param {Dataset} dataset
- * @param {{recipeId: string, machines: number, clock?: number}[]} blockRows
+ * @param {{recipeId: string, machines: number, clock?: number, built?: boolean}[]} blockRows
  * @returns {Map<string, number>}
  */
 export function pinnedBalance(dataset, blockRows) {

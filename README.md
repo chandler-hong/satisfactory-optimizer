@@ -38,10 +38,15 @@ goal's cost, showing what's still uncovered and roughly how long the plan takes 
 with a one-click button to turn the gaps into demand rows.
 
 Each block is either **Built** or **To build**, and the difference is the whole point. A
-Built block already exists and is already fed, so only what it *makes* enters the plan —
-declare your existing Motor line, ask for Modular Engines, and you get the Rubber and Smart
-Plating to add, not the Rotors and ore already flowing. A To-build block gets its feedstock
-planned upstream too. New blocks default to Built.
+Built block already exists and is already fed, so only what it *makes* enters the plan.
+Declare your existing 6× Assembler Motor line as Built and ask for 10 Modular Engine/min:
+Stator drops out entirely, and the Motors' own share of the Rotors goes with it — Rotor
+machines fall from ×20 to just the ×5 that Smart Plating still needs for itself, taking
+iron ore from 1410/min down to 465/min and total machines from 267 to 97. A To-build
+block gets its feedstock planned upstream instead. New blocks default to Built — and so
+do any blocks saved before this feature shipped, since the storage format wasn't bumped,
+so a returning session's plan can re-solve to something materially different on first
+load.
 
 The Expansion view has its own alternate-recipe picker, starting with all of them off, so it
 won't prescribe a recipe you haven't unlocked. It's independent of the Optimizer's picker —

@@ -244,6 +244,13 @@ output. Asking for more than 15/min reports a Motor shortfall through the existi
 shortfalls panel rather than silently building more Motors — correct, because the
 block is a declaration of capacity, not a target.
 
+**Correction, post-implementation:** the "Rotor, Stator, iron ore, miner counts" row above
+is wrong. Smart Plating's own recipe (Reinforced Iron Plate ×2 + Rotor ×2) still needs
+Rotors independently of the Motors, so Rotor and iron ore do not go to zero — only Stator
+drops out entirely, and only the Motors' own share of Rotor demand is removed. Verified
+against the shipped implementation (base recipes only): Rotor machines fall from ×20 (To
+build) to ×5 (Built), iron ore from 1410/min to 465/min, and total machines from 267 to 97.
+
 ## 7. Files
 
 | File | Change |
