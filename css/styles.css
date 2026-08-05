@@ -462,7 +462,9 @@ table {
 
 .sidebar { padding: 1.25rem; }
 
-/* Text / number / search inputs and selects share one field look. */
+/* Text / number / search inputs and selects share one field look. The
+   .expansion-view entries include type="search": alt-picker.js mounts a filter
+   box directly there, the first type="search" input in that view. */
 .app input[type="text"],
 .app input[type="number"],
 .app input[type="search"],
@@ -471,7 +473,8 @@ table {
 .power-view select,
 .codex-view input[type="search"],
 .expansion-view input[type="text"],
-.expansion-view input[type="number"] {
+.expansion-view input[type="number"],
+.expansion-view input[type="search"] {
   font: inherit;
   color: var(--ink);
   background: var(--surface);
@@ -495,7 +498,8 @@ table {
 .power-view select:hover,
 .codex-view input[type="search"]:hover,
 .expansion-view input[type="text"]:hover,
-.expansion-view input[type="number"]:hover { border-color: var(--ink-muted); }
+.expansion-view input[type="number"]:hover,
+.expansion-view input[type="search"]:hover { border-color: var(--ink-muted); }
 
 .app input[type="text"]:focus-visible,
 .app input[type="number"]:focus-visible,
@@ -505,7 +509,8 @@ table {
 .power-view select:focus-visible,
 .codex-view input[type="search"]:focus-visible,
 .expansion-view input[type="text"]:focus-visible,
-.expansion-view input[type="number"]:focus-visible {
+.expansion-view input[type="number"]:focus-visible,
+.expansion-view input[type="search"]:focus-visible {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
@@ -598,8 +603,11 @@ table {
 /* Field label text (the caption above each control). */
 .sidebar label > span:first-child { color: var(--ink-2); font-weight: 500; }
 
-/* Alt-recipes <details>/<summary> disclosure. */
-.sidebar summary {
+/* Alt-recipes <details>/<summary> disclosure. .expansion-view mounts the same
+   shared widget directly (no .sidebar wrapper) and is a sibling of .app, not a
+   descendant, so .sidebar's rule alone doesn't reach it — name it here too. */
+.sidebar summary,
+.expansion-view summary {
   cursor: pointer;
   padding: 0.5rem 0;
   color: var(--ink-2);
@@ -607,7 +615,8 @@ table {
   user-select: none;
 }
 
-.sidebar summary:hover { color: var(--ink); }
+.sidebar summary:hover,
+.expansion-view summary:hover { color: var(--ink); }
 
 /* Searchable combobox popup + options. */
 .search-list {
@@ -786,6 +795,18 @@ input[type="range"]:focus-visible {
 
 .alt-row:hover {
   background: var(--surface-2);
+}
+
+/* This widget is shared by .sidebar (inside .app) and .expansion-view directly;
+   .app input[type="checkbox"] above only reaches the .sidebar copy, since
+   .expansion-view is a sibling of .app, not a descendant — name it here too.
+   Third occurrence of this bug in this feature; see the two fixes below. */
+.alt-row input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 /* Notice that alternates are off by default. */
