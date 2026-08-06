@@ -918,6 +918,48 @@ test('planExpansion (max): the same byproduct is not a ceiling once an independe
 });
 
 /**
+ * Fix round 5, Critical. proteinToStone's stone-per-protein ratio (10) makes
+ * it the more attractive route at pass 1's very first pivot, so the greedy
+ * entering-column rule (buildMaxSetsModel has no cost to break the tie any
+ * other way) drives it — and the `have` row on protein that feeds it — all
+ * the way to its cap (100) before ever considering freeStone. freeStone has
+ * no inputs at all, so once it is reached, stone can run away to infinity
+ * without ever touching ore. Pass 1 comes back feasible:true, bounded:false,
+ * genuinely unbounded (objective Infinity, not merely clamp-scale-huge) —
+ * but jsLPSolver still hands back the vertex it was sitting on when it
+ * discovered that, with protein's `have` variable parked at its own cap for
+ * reasons that have nothing to do with protein constraining stone's true
+ * maximum (verified directly against r1: bounded false, objective Infinity,
+ * values holding _supply_have_protein at exactly 100). Guarding
+ * supplyAtMax's fill on `r1.bounded` (optimize.js) keeps that cap-parked
+ * value out of bindingItems here; without the guard, protein would read as
+ * fully drawn with no other producer, which flips `bounded` to true (its
+ * other guard, lpNetRaw, is vacuously true too — neither route here ever
+ * touches ore) on an answer that is genuinely unbounded.
+ */
+test('planExpansion (max): an unbounded plan that fully drains a have row first stays unbounded', () => {
+  const proteinToStone = { id: 'proteinToStone', name: 'proteinToStone', buildingId: 'b', alternate: false, inputs: [{ itemId: 'protein', perMin: 1 }], outputs: [{ itemId: 'stone', perMin: 10 }] };
+  const freeStone = { id: 'freeStone', name: 'freeStone', buildingId: 'b', alternate: true, inputs: [], outputs: [{ itemId: 'stone', perMin: 1 }] };
+  const runawayDataset = { ...ironChain, recipes: [...ironChain.recipes, proteinToStone, freeStone] };
+  const runawayEnabled = new Set([...ALL_IRON_RECIPES, 'proteinToStone', 'freeStone']);
+  const p = planExpansion({
+    dataset: runawayDataset,
+    rows: [
+      { kind: 'have', itemId: 'protein', rate: 100 },
+      { kind: 'max', itemId: 'stone', weight: 1 },
+    ],
+    enabledRecipeIds: runawayEnabled,
+    mode: 'max',
+  });
+  assert.equal(p.maximize.sets, Infinity,
+    'freeStone has no inputs at all, so stone is genuinely unbounded, not merely clamp-scale-huge');
+  assert.equal(p.maximize.bounded, false,
+    'protein being fully drawn does not mean protein bounds stone: freeStone gives stone a second, unbounded route');
+  assert.deepEqual(p.maximize.bindingItems, [],
+    'fix round 2, D (and round 5): protein IS drawn to its cap here, but bounded:false must not leave it named as if it were binding');
+});
+
+/**
  * Fix round 1, Important 3 (pinning test — behavior was already correct).
  * horAlt is hor's only route; plasticR makes plastic AND hor together.
  * Declaring horAlt excludes every recipe that outputs hor ANYWHERE, including
