@@ -11,6 +11,7 @@
  */
 import { netPerMin } from '../domain/model.js';
 import { hitTargets, maxSets } from './optimize.js';
+import { RAW_CLAMP } from './lp-builder.js';
 import { realize } from './physical-layer.js';
 import { beltReport } from './belt-layer.js';
 import { analyzeRequirements } from './requirements.js';
@@ -482,7 +483,22 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // minus any block that nets a raw *surplus* (rawCredit — see splitDemand).
   // Floored at 0: a surplus that outweighs every other draw is not a negative
   // need, it's just fully covered.
+  //
+  // lpNetRaw is a snapshot of the LP's OWN net raw usage, taken before any of
+  // that want/credit adjustment. Fix round 2, B: maximize.bounded (below) must
+  // clamp-check THIS, not the adjusted rawUsage returned to callers — the
+  // adjustment is real product surface (the raw footer needs it) but has
+  // nothing to do with what rawConstraints() (lp-builder.js) actually bounded,
+  // so checking the adjusted value reads a quantity the clamp never applied
+  // to. Reproduced both leaks this let through: an oversized raw `want` row on
+  // top of a genuinely bounded plan pushes the ADJUSTED total near RAW_CLAMP
+  // and falsely reports unbounded; a block crediting ~1e6+/min of a runaway
+  // raw (rawCredit) pulls the adjusted total back under the clamp threshold
+  // and falsely reports bounded — reopening the bypass-route Critical (sets in
+  // the tens of millions, bindingItems naming an unrelated declared line) by a
+  // different route than the margin width fixed in round 1.
   const rawUsage = lpRawUsage(dataset, recipeRates);
+  const lpNetRaw = new Map(rawUsage);
   for (const [itemId, v] of rawDemand) add(rawUsage, itemId, v);
   for (const [itemId, v] of rawCredit) add(rawUsage, itemId, -v);
   for (const [itemId, v] of rawUsage) rawUsage.set(itemId, Math.max(0, v));
@@ -539,18 +555,45 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // resource clamp (planExpansion sets every raw cap to Infinity above;
   // rawConstraints() clamps a non-finite cap to 1e9, so an unbounded answer
   // surfaces as a huge finite number near that clamp, not as infeasibility).
-  // rawUsage (computed above) catches this independently: a genuinely bounded
-  // plan never gets near 1e9 on any raw. Do NOT reach for solved.bindingResources
-  // instead — planExpansion's raw caps are all Infinity, so that comparison is
-  // always against Infinity and bindingResources is therefore always empty.
+  // lpNetRaw (computed above, pre-want/credit) catches this independently: a
+  // genuinely bounded plan never gets near RAW_CLAMP on any raw. Do NOT reach
+  // for solved.bindingResources instead — planExpansion's raw caps are all
+  // Infinity, so that comparison is always against Infinity and
+  // bindingResources is therefore always empty.
   const maximize = !isMax ? undefined : (() => {
     const drawn = solved.supplyDrawn || [];
     const hasEnabledProducer = (itemId) =>
       dataset.recipes.some((r) => solveEnabled.has(r.id) && (r.outputs || []).some((o) => o.itemId === itemId));
+    // Fix round 2, A: the "fully drawn" margin must be relative, not the flat
+    // EPS (1e-6) this started as. buildMinRawForSetsModel's pass 2 (lp-builder.js)
+    // pins SETS at `minSets - Math.abs(minSets) * 1e-9 - 1e-9` — a give that
+    // scales with the declared rate, not a fixed absolute amount — so a supply
+    // drawn to exhaustion can fall short of `s.rate` by more than a flat 1e-6
+    // once the rate clears about 1000/min (EPS / 1e-9). Below that break point
+    // the flat EPS still covers it; Math.max keeps this check exact there too.
+    // Reproduced: a declared screw block read as bounded with the right
+    // binding item at 1000/min and below, then silently flipped to
+    // bounded:false with no binding item at 2000/min and above, despite the
+    // reported sets being correct at every scale.
     const bindingItems = supplies
       .map((s, i) => ({ s, used: drawn[i]?.used ?? 0 }))
-      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - EPS && !hasEnabledProducer(s.itemId))
+      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - Math.max(EPS, s.rate * 1e-6) && !hasEnabledProducer(s.itemId))
       .map(({ s }) => ({ itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6(s.rate) }));
+    // Margin below RAW_CLAMP: relative (fix round 2, C1), not the flat `1e6`
+    // round 1 shipped. The structural solver gap observed at clamp scale is
+    // ~1 raw unit (pass 2's relative-1e-9 give against pass 1's max, at SETS
+    // in the tens of millions+ — see the comment block above), so
+    // `RAW_CLAMP * (1 - 1e-6)` keeps three orders of headroom over that gap
+    // while shrinking the false-negative window 1000x versus a flat `1e6`,
+    // and it scales automatically if RAW_CLAMP itself ever changes instead of
+    // being a second number that has to be kept in sync by hand.
+    //
+    // Checked against lpNetRaw, NOT the adjusted rawUsage returned to callers
+    // (fix round 2, B — see the comment where lpNetRaw is captured, above):
+    // rawUsage folds in raw `want` rows and block rawCredit, neither of which
+    // rawConstraints() (lp-builder.js) ever bounded.
+    const bounded = bindingItems.length > 0
+      && [...lpNetRaw.values()].every((v) => v < RAW_CLAMP * (1 - 1e-6));
     return {
       sets: round6(solved.sets || 0),
       perPart: (solved.perPart || []).map((p) => ({
@@ -561,20 +604,15 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         weight: p.weight,
         rate: round6(p.rate),
       })),
-      bindingItems,
-      // Margin below the 1e9 clamp: NOT tightened to `1e9 - 1`. buildMinRawModel /
-      // buildMinRawForSetsModel (lp-builder.js) pin pass 2's SETS at
-      // `minTarget - Math.abs(minTarget) * 1e-9 - 1e-9` — a relative 1e-9 give
-      // versus pass 1's max. At clamp-scale SETS (tens of millions+, exactly the
-      // regime this check exists to catch), that relative slack becomes an
-      // absolute raw-usage gap of the same order as a 1-unit margin, so a
-      // bypass/unbounded plan can land a hair under `1e9 - 1` and read as bounded
-      // — reproduced empirically, not hypothetical. Every genuinely bounded case
-      // observed sits at 1e0-1e3; every clamp-derived case observed sits at
-      // 1e7-1e9+, nine-plus orders of magnitude apart. 1e6 sits in that gap with
-      // wide margin on both sides and is insensitive to the solver's per-pass
-      // tolerance.
-      bounded: bindingItems.length > 0 && [...rawUsage.values()].every((v) => v < 1e9 - 1e6),
+      // Fix round 2, D: cleared to [] when unbounded rather than left naming
+      // whatever was fully drawn. The bypass-route Critical is exactly a case
+      // where something IS fully drawn (rod) while the real answer runs away
+      // on a different route — bounded:false already says "ignore this", but
+      // a renderer that lists bindingItems without checking bounded first
+      // would print the very claim the Critical was about. The two fields can
+      // no longer visually disagree.
+      bindingItems: bounded ? bindingItems : [],
+      bounded,
     };
   })();
 

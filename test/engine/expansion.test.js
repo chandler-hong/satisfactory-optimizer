@@ -864,6 +864,8 @@ test('planExpansion (max): a bypass route around a declared line is unbounded, n
     `expected a clamp-scale runaway answer (castScrew makes rip's screw need free), got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, false,
     'rod being fully drawn does not mean rod bounds rip: castScrew gives rip a second, unbounded route');
+  assert.deepEqual(p.maximize.bindingItems, [],
+    'fix round 2, D: rod IS fully drawn here, but bounded:false must not leave it named as if it were binding');
 });
 
 /**
@@ -959,6 +961,85 @@ test('planExpansion (max): a partially-drawn declared line is not binding, only 
   assert.equal(p.maximize.bounded, true);
   assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['rod'],
     'screw is only 75 of its declared 800/min here, nowhere near its cap, so it must not appear');
+});
+
+/**
+ * Fix round 2, A. The "fully drawn" check used a flat EPS (1e-6) margin
+ * against a pass-2 shortfall that is actually relative to the declared rate
+ * (buildMinRawForSetsModel pins SETS at minSets - |minSets|*1e-9 - 1e-9). That
+ * breaks down once the declared rate clears about 1000/min (EPS / 1e-9):
+ * screw at 2000/min here is the exact repro — the reported sets stayed
+ * correct at every scale, but bounded/bindingItems silently went to
+ * false/[] above the break point, defeating the feature at an entirely
+ * ordinary production rate.
+ */
+test('planExpansion (max): a declared line at realistic (2000+/min) scale still reads bounded', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 50, clock: 1 }, // 50 * 40 = 2000 screw/min
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ]);
+  assert.equal(p.maximize.bounded, true,
+    'a declared line at 2000/min must still read bounded, not silently flip false once the rate is realistic');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['screw']);
+  assert.ok(Math.abs(p.maximize.sets - 80) < 1e-6, `expected 80 (2000 screw / 25 per rotor), got ${p.maximize.sets}`);
+});
+
+/**
+ * Fix round 2, B1 (false negative). maximize.bounded clamp-checked the
+ * adjusted rawUsage returned to callers — which folds in unrelated raw `want`
+ * rows — instead of the LP's own net raw usage. An oversized want row on top
+ * of the very first maximize test's genuinely-bounded plan (screw x2, sets
+ * 3.2) pushed the adjusted total near the raw clamp and flipped bounded to
+ * false despite nothing about the actual bound having changed. The want rate
+ * (2e9) is chosen comfortably past RAW_CLAMP itself, not just past the
+ * bounded/unbounded margin (RAW_CLAMP * (1 - 1e-6)) — the leak this pins is
+ * "any raw want row corrupts the check", not a specific magnitude, and a
+ * `want` row bypasses the LP entirely (see the raw-footer test above) so its
+ * size cannot affect feasibility or sets.
+ */
+test('planExpansion (max): an unrelated raw want row does not falsely unbound a genuinely bounded plan', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+    { kind: 'want', itemId: 'ore', rate: 2e9 },
+  ]);
+  assert.equal(p.maximize.bounded, true,
+    'the screw line still bounds rotor the same way regardless of an unrelated raw want row');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['screw']);
+  assert.ok(Math.abs(p.maximize.sets - 3.2) < 1e-6, `expected 3.2, got ${p.maximize.sets}`);
+});
+
+/**
+ * Fix round 2, B2 (false positive — reopens the Critical). Same leak as B1,
+ * opposite direction: a block's rawCredit (see splitDemand) is SUBTRACTED from
+ * the adjusted rawUsage, so a block that credits enough of the runaway raw can
+ * pull the adjusted total back under the clamp threshold. Built on the
+ * Critical's own bypass-route fixture (castScrew routes around the declared
+ * rod line), plus an oreMaker block crediting 34000 * 30 = 1,020,000/min ore —
+ * comfortably past the ~1e6 margin round 1 shipped. Before this fix, that
+ * credit alone was enough to make the exact same runaway-to-the-clamp plan
+ * (sets in the tens of millions) read bounded:true with bindingItems:["rod"].
+ */
+test('planExpansion (max): a large block rawCredit does not reopen the bypass-route Critical', () => {
+  const castScrew = { id: 'castScrew', name: 'castScrew', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ingot', perMin: 10 }], outputs: [{ itemId: 'screw', perMin: 20 }] };
+  const oreMaker = { id: 'oreMaker', name: 'oreMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [{ itemId: 'ore', perMin: 30 }] };
+  const bypassDataset = { ...ironChain, recipes: [...ironChain.recipes, castScrew, oreMaker] };
+  const bypassEnabled = new Set([...ALL_IRON_RECIPES, 'castScrew', 'oreMaker']);
+  const p = planExpansion({
+    dataset: bypassDataset,
+    rows: [
+      { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+      { kind: 'block', recipeId: 'oreMaker', machines: 34000, clock: 1 }, // credits 1.02e6/min ore
+      { kind: 'max', itemId: 'rip', weight: 1 },
+    ],
+    enabledRecipeIds: bypassEnabled,
+    mode: 'max',
+  });
+  assert.ok(p.maximize.sets > 1e6,
+    `expected the same clamp-scale runaway answer as the plain bypass case, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, false,
+    "a block crediting ~1e6/min of the runaway raw must not resurrect the Critical's false bound");
+  assert.deepEqual(p.maximize.bindingItems, []);
 });
 
 /**

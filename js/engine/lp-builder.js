@@ -72,12 +72,17 @@ function buildVariables(dataset, enabledRecipeIds) {
 
 // A non-finite cap (e.g. auto-included Water) means "effectively unlimited":
 // the solver needs a real number, so clamp to a large finite bound the LP will
-// never actually reach.
+// never actually reach. Exported so a caller that needs to detect "the LP ran
+// into this clamp" (Expansion Mode's maximize.bounded check, expansion.js)
+// compares against the exact value used here instead of keeping a second
+// hardcoded copy in sync by hand.
+export const RAW_CLAMP = 1e9;
+
 function rawConstraints(touchedRaw, caps) {
   const c = {};
   for (const res of touchedRaw) {
     const cap = caps.get(res) ?? 0;
-    c[res] = { max: Number.isFinite(cap) ? cap : 1e9 };
+    c[res] = { max: Number.isFinite(cap) ? cap : RAW_CLAMP };
   }
   return c;
 }
