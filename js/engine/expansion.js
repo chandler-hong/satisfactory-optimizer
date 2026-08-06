@@ -14,7 +14,7 @@ import { hitTargets, maxSets } from './optimize.js';
 import { RAW_CLAMP } from './lp-builder.js';
 import { realize } from './physical-layer.js';
 import { beltReport } from './belt-layer.js';
-import { analyzeRequirements } from './requirements.js';
+import { analyzeRequirements, producibleClosure } from './requirements.js';
 import { MINER_RATES, OIL_EXTRACTOR_RATES, WELL_SATELLITE_RATES, WATER_EXTRACTOR_RATE } from './resource-model.js';
 
 const EPS = 1e-6;
@@ -444,6 +444,19 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // fully reported by netOutput — and the have-row tests below assert
   // supplyUsage holds only the declared (have-kind) row, so leaving the
   // pinned entry in breaks 3 of them.
+  //
+  // Fix round 3, smaller 1: `capped`'s own margin needed the same relative
+  // widening bindingItems got in round 2, A (see that comment below). This
+  // block is built from solved.supplyDrawn unconditionally, before the mode
+  // branch, so in max mode it reads pass 2's own give-reduced draw against a
+  // flat EPS and can read `capped: false` on a have row genuinely exhausted
+  // to within pass 2's relative give (reproduced: a have row read a ~5e-6
+  // shortfall once its cheapest alternate route became cost-degenerate with
+  // the have row's own SUPPLY_COST — past flat EPS but comfortably inside a
+  // relative margin). The target-rates path (mode: 'targets') does not need
+  // this: its target constraint is a hard {min: d} with no give, so the only
+  // shortfall source there is optimize.js's absolute rounding (bounded by
+  // 5e-7), which flat EPS already covers 2x at any magnitude.
   const supplyUsage = supplies
     .map((s, i) => {
       const used = solved.supplyDrawn[i]?.used ?? 0;
@@ -452,7 +465,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         kind: s.kind,
         rate: round6(s.rate),
         used: round6(used),
-        capped: used >= s.rate - EPS && builtItems.has(s.itemId),
+        capped: used >= s.rate - Math.max(EPS, s.rate * 1e-6) && builtItems.has(s.itemId),
       };
     })
     .filter((s) => s.kind === 'have');
@@ -538,10 +551,16 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // so the solver can always draw a have row to `used === rate` as a pure
   // side effect, not because it is the true bottleneck. So this is gated on
   // the item having NO remaining producer in solveEnabled, the post-exclusion
-  // recipe set actually handed to the solver:
+  // recipe set actually handed to the solver — "producer" here means
+  // reachable from raw through solveEnabled (producibleClosure), not merely
+  // "some enabled recipe lists it as an output" (fix round 3, Important: see
+  // hasEnabledProducer below, and the difference matters):
   //   - a block's declared primary always clears this gate (its producers are
   //     excluded by construction, see blockOutputExclusions above);
-  //   - a have row's item never does (its recipe is never excluded);
+  //   - a have row's item never does *through exclusion* (its recipe is never
+  //     excluded) — but it still can through unreachability: an enabled
+  //     recipe that nominally outputs the item is not a real producer if its
+  //     own inputs have no path back to raw (fix round 3, Important);
   //   - a block's byproduct clears it only when its producer got excluded as
   //     collateral (blockOutputExclusions' any-output asymmetry, documented
   //     there) and nothing else makes the item — an orphaned byproduct that
@@ -562,8 +581,41 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // bindingResources is therefore always empty.
   const maximize = !isMax ? undefined : (() => {
     const drawn = solved.supplyDrawn || [];
-    const hasEnabledProducer = (itemId) =>
-      dataset.recipes.some((r) => solveEnabled.has(r.id) && (r.outputs || []).some((o) => o.itemId === itemId));
+    // Fix round 3, Important: hasEnabledProducer must ask "can this item
+    // actually be produced" (reachable from raw resources through enabled
+    // recipes), not "does some enabled recipe syntactically list it as an
+    // output." The syntactic form reads a producer as live even when its own
+    // inputs have no producer at all — e.g. a base recipe like Biomass
+    // (Wood) stays "enabled" even though Wood itself has zero producers in
+    // the normalized dataset (foraged items are non-raw, non-produced — see
+    // normalize.js). So an item that is genuinely dead read as freely
+    // buildable, and the declared supply that really is the ceiling got
+    // filtered out of bindingItems, collapsing `bounded` to false on a
+    // correct answer — reachable via ordinary have/pinned rows on any
+    // foraged item, and via a block's byproduct too (blockOutputExclusions
+    // only excludes producers of the block's own primary output).
+    // producibleClosure (requirements.js) is the fixpoint reachability the
+    // "no recipe path" diagnostic above (analysis) already trusts for this
+    // exact question; reusing it here asks whether itemId is reachable from
+    // dataset.rawResourceIds (uncapped by design in this mode — see the
+    // `caps` construction and the analyzeRequirements comment above) through
+    // solveEnabled, the same post-exclusion recipe set the syntactic check
+    // used.
+    //
+    // Considered and rejected: gating on solved.recipeRates (chosen, pass
+    // 2's own load) instead of static reachability. recipeRates comes from
+    // the min-raw second pass, which can legitimately drive a structurally
+    // live producer's rate to exactly 0 when a cheaper declared supply
+    // already covers demand after pass 1's give — that producer did not
+    // stop existing, it just wasn't needed for *this* solve; a larger ask
+    // would still route through it (reproduced with a live, uncapped
+    // alternate producer that a cheaper have-row supply left running at
+    // rate 0). A dynamic check reads that as "dead" and would wrongly
+    // suppress a binding item pass 1's own optimum depended on. Static
+    // reachability carries no such dependency on any one solve's specific
+    // tie-break.
+    const producible = producibleClosure(dataset, solveEnabled, dataset.rawResourceIds).producible;
+    const hasEnabledProducer = (itemId) => producible.has(itemId);
     // Fix round 2, A: the "fully drawn" margin must be relative, not the flat
     // EPS (1e-6) this started as. buildMinRawForSetsModel's pass 2 (lp-builder.js)
     // pins SETS at `minSets - Math.abs(minSets) * 1e-9 - 1e-9` — a give that

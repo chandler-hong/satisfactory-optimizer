@@ -1108,3 +1108,164 @@ test('planExpansion: a max row is inert unless mode is explicitly "max"', () => 
   assert.equal(withoutMode.tiles.machines, withTargetsMode.tiles.machines,
     'explicit targets mode and the default must solve identically');
 });
+
+/**
+ * Fix round 3, Important. hasEnabledProducer (see the comment above the
+ * `maximize` IIFE) used to ask only "does some enabled recipe list this item
+ * as an output," never "can that recipe actually run." An item whose only
+ * producers are structurally dead -- their own inputs have no producer at
+ * all, raw or otherwise -- read as freely buildable, so a declared supply
+ * that really is the ceiling got filtered out of bindingItems and `bounded`
+ * collapsed to false on a correct answer.
+ *
+ * wood has zero producers in this dataset and is not raw, so deadBiomass
+ * (wood -> biomass) is structurally dead, exactly like a real base recipe
+ * such as Biomass (Wood) would be if Wood itself had no producer (it
+ * doesn't, in the real dataset -- but other foraged items reach this same
+ * shape; see the comment above). have biomass at 500/min + max fuel
+ * (biomass(2) -> fuel(1)) should read sets=250, bounded:true,
+ * bindingItems:['biomass'] -- this is the "present and enabled" case, the
+ * one the old syntactic check got wrong.
+ */
+test('planExpansion (max): a structurally dead producer does not suppress a correct bound', () => {
+  const deadBiomass = { id: 'deadBiomass', name: 'deadBiomass', buildingId: 'b', alternate: false, inputs: [{ itemId: 'wood', perMin: 1 }], outputs: [{ itemId: 'biomass', perMin: 1 }] };
+  const fuelMaker = { id: 'fuelMaker', name: 'fuelMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'biomass', perMin: 2 }], outputs: [{ itemId: 'fuel', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, deadBiomass, fuelMaker] };
+  const enabled = new Set([...ALL_IRON_RECIPES, 'deadBiomass', 'fuelMaker']);
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'biomass', rate: 500 },
+      { kind: 'max', itemId: 'fuel', weight: 1 },
+    ],
+    enabledRecipeIds: enabled,
+    mode: 'max',
+  });
+  assert.ok(Math.abs(p.maximize.sets - 250) < 1e-6, `expected 250, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, true,
+    'a structurally dead producer (deadBiomass, fed by wood, which has no producer of its own) must not read as a live one');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['biomass']);
+});
+
+/**
+ * Same dataset and rows as above, dead producer disabled by the user -- the
+ * old syntactic check already got this one right (a disabled recipe was
+ * never "some enabled recipe"), so this is a control: the answer must be
+ * identical to the enabled case above.
+ */
+test('planExpansion (max): control -- the same dead producer, user-disabled, reads identically', () => {
+  const deadBiomass = { id: 'deadBiomass', name: 'deadBiomass', buildingId: 'b', alternate: false, inputs: [{ itemId: 'wood', perMin: 1 }], outputs: [{ itemId: 'biomass', perMin: 1 }] };
+  const fuelMaker = { id: 'fuelMaker', name: 'fuelMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'biomass', perMin: 2 }], outputs: [{ itemId: 'fuel', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, deadBiomass, fuelMaker] };
+  const enabled = new Set([...ALL_IRON_RECIPES, 'fuelMaker']); // deadBiomass NOT enabled
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'biomass', rate: 500 },
+      { kind: 'max', itemId: 'fuel', weight: 1 },
+    ],
+    enabledRecipeIds: enabled,
+    mode: 'max',
+  });
+  assert.ok(Math.abs(p.maximize.sets - 250) < 1e-6, `expected 250, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, true);
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['biomass']);
+});
+
+/**
+ * Same again, dead producer absent from the dataset entirely -- a second
+ * control. All three variants (this one, the disabled one above, and the
+ * present-and-enabled one before it) must agree exactly; only the
+ * present-and-enabled case was ever at risk under the old syntactic check.
+ */
+test('planExpansion (max): control -- no dead producer in the dataset at all reads identically', () => {
+  const fuelMaker = { id: 'fuelMaker', name: 'fuelMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'biomass', perMin: 2 }], outputs: [{ itemId: 'fuel', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, fuelMaker] }; // no deadBiomass at all
+  const enabled = new Set([...ALL_IRON_RECIPES, 'fuelMaker']);
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'biomass', rate: 500 },
+      { kind: 'max', itemId: 'fuel', weight: 1 },
+    ],
+    enabledRecipeIds: enabled,
+    mode: 'max',
+  });
+  assert.ok(Math.abs(p.maximize.sets - 250) < 1e-6, `expected 250, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, true);
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['biomass']);
+});
+
+/**
+ * Fix round 3, smaller 1. supplyUsage's `capped` field is built from
+ * solved.supplyDrawn unconditionally, before the mode branch (see the
+ * comment above supplyUsage's construction) -- in max mode that draw comes
+ * from pass 2's own relative give, the same one round 2, A widened
+ * bindingItems' margin for, but `capped` still compared against a flat EPS.
+ *
+ * gizmoMaker (catalyst -> screwAlt) is a cost-degenerate alternate route to
+ * screwAlt that only becomes worth running once the screwAlt have row itself
+ * is fully drawn, so at 1000/min declared on both have rows, pass 2 leaves
+ * screwAlt short of its declared rate by ~2e-6 -- past a flat EPS (1e-6) but
+ * comfortably inside the relative margin (1000 * 1e-6 = 1e-3). The old
+ * flat-EPS check read capped:false here despite screwAlt being genuinely
+ * exhausted.
+ */
+test('planExpansion (max): supplyUsage.capped reads true at realistic (1000+/min) scale', () => {
+  const gizmoMaker = { id: 'gizmoMaker', name: 'gizmoMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'screwAlt', perMin: 1 }] };
+  const widgetMaker = { id: 'widgetMaker', name: 'widgetMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 1 }, { itemId: 'screwAlt', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, gizmoMaker, widgetMaker] };
+  const enabled = new Set([...ALL_IRON_RECIPES, 'gizmoMaker', 'widgetMaker']);
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate: 1000 },
+      { kind: 'have', itemId: 'screwAlt', rate: 1000 },
+      { kind: 'max', itemId: 'widget', weight: 1 },
+    ],
+    enabledRecipeIds: enabled,
+    mode: 'max',
+  });
+  const su = p.supplyUsage.find((s) => s.itemId === 'screwAlt');
+  assert.ok(su.rate - su.used > 1e-6, `expected a shortfall past the flat EPS margin, got ${su.rate - su.used}`);
+  assert.equal(su.capped, true,
+    "screwAlt is exhausted to within pass 2's relative give, so capped must read true even though the flat-EPS shortfall alone would say otherwise");
+});
+
+/**
+ * Fix round 3, smaller 2 (C1 had no test). Reverting the relative RAW_CLAMP
+ * margin (fix round 2, C1: `RAW_CLAMP * (1 - 1e-6)`) to the flat one round 1
+ * shipped (`RAW_CLAMP - 1e6`) kills nothing in the existing suite, so a
+ * future edit back to a flat margin would ship silently. This lands
+ * lpNetRaw's ore usage inside [999000000, 999999000) -- above the old flat
+ * threshold (999000000) but below the current relative one (999999000) --
+ * which discriminates the two: only the relative margin reads this as
+ * genuinely bounded.
+ *
+ * partRig is a pinned block (no inputs, no raw cost) that bounds `part` at
+ * exactly 1000/min. fillerMaker is the sole route to `filler` and has a real
+ * raw cost (999500 ore per filler), so pass 2's own cost-minimization pins
+ * its rate to the minimum demand actually needs, landing ore usage at
+ * ~999,499,999 -- deep inside the discriminating gap, not at some
+ * solver-chosen surplus (verified against the real solve, not assumed).
+ */
+test('planExpansion (max): bounded stays true just inside the relative RAW_CLAMP margin', () => {
+  const partRig = { id: 'partRig', name: 'partRig', buildingId: 'b', alternate: false, inputs: [], outputs: [{ itemId: 'part', perMin: 1 }] };
+  const fillerMaker = { id: 'fillerMaker', name: 'fillerMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 999500 }], outputs: [{ itemId: 'filler', perMin: 1 }] };
+  const widgetMaker = { id: 'widgetMaker', name: 'widgetMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'part', perMin: 1 }, { itemId: 'filler', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, partRig, fillerMaker, widgetMaker] };
+  const enabled = new Set([...ALL_IRON_RECIPES, 'partRig', 'fillerMaker', 'widgetMaker']);
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'block', recipeId: 'partRig', machines: 1000, clock: 1 },
+      { kind: 'max', itemId: 'widget', weight: 1 },
+    ],
+    enabledRecipeIds: enabled,
+    mode: 'max',
+  });
+  assert.ok(Math.abs(p.maximize.sets - 1000) < 1e-6, `expected 1000, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, true,
+    'ore usage lands just inside the relative RAW_CLAMP margin, so this must not read as hitting the clamp');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['part']);
+});
