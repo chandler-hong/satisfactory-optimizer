@@ -40,11 +40,13 @@ test('sanitizeState: clamps magnitudes a stored payload could still carry', () =
     { kind: 'want', itemId: 'a', rate: 1e10 },
     { kind: 'have', itemId: 'b', rate: -5 },
     { kind: 'block', recipeId: 'r2', machines: 3, clock: -0.5 },
+    { kind: 'max', itemId: 'c', weight: 1e10 },
   ] });
   assert.equal(s.rows[0].machines, 9999, 'machines clamp to MAX_MACHINES');
   assert.equal(s.rows[1].rate, 1e6, 'rates clamp to MAX_RATE');
   assert.equal(s.rows[2].rate, 0, 'a negative rate floors at 0');
   assert.equal(s.rows[3].clock, 1, 'and an invalid clock normalizes to 100%, same as the engine');
+  assert.equal(s.rows[4].weight, 10000, 'weight clamps to MAX_WEIGHT');
 });
 
 test('sanitizeState: keeps only string goal ids and a positive fillMinutes', () => {
@@ -189,6 +191,7 @@ test('sanitizeState: max rows keep an itemId and a positive weight', () => {
     { kind: 'max', itemId: 'b', weight: 3 },
     { kind: 'max', itemId: 'c', weight: -2 },
     { kind: 'max', itemId: 'd', weight: 'abc' },
+    { kind: 'max', itemId: 42, weight: 5 },
     { kind: 'max', weight: 2 },
   ] });
   assert.deepEqual(s.rows, [
@@ -196,5 +199,5 @@ test('sanitizeState: max rows keep an itemId and a positive weight', () => {
     { kind: 'max', itemId: 'b', weight: 3 },
     { kind: 'max', itemId: 'c', weight: 1 },
     { kind: 'max', itemId: 'd', weight: 1 },
-  ], 'a missing/invalid weight becomes 1; a row with no itemId is dropped');
+  ], 'a missing/invalid weight becomes 1; a row with no itemId or a non-string itemId (42) is dropped');
 });

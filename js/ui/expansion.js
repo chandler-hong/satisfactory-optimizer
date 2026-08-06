@@ -37,6 +37,16 @@ function el(tag, className) {
  */
 const MAX_MACHINES = 9999;
 const MAX_RATE = 1e6;
+// A max-mode weight is a dimensionless parts-per-set ratio against the other
+// declared targets, not a physical rate or count, so nothing about the game
+// bounds it the way a belt bounds MAX_RATE. It still needs a reload-survives
+// ceiling for the same reason the other two do: no sensible manual weighting
+// needs five digits of ratio against a sibling target, so this stays a UI-layer
+// sensibility bound only, module-scoped like MAX_MACHINES so Task 5's own max
+// row can reach it too — not a claim about where the engine's LP would break,
+// which is a separate question (it stays correct well past this value; see
+// planExpansion's own maxTargets guard).
+const MAX_WEIGHT = 10000;
 const clampTo = (max, value) => Math.min(max, Math.max(0, Number(value) || 0));
 
 /**
@@ -81,7 +91,8 @@ export function sanitizeState(raw, knownRecipeIds) {
     } else if (r.kind === 'max') {
       if (typeof r.itemId !== 'string' || !r.itemId) continue;
       const weight = Number(r.weight);
-      rows.push({ kind: 'max', itemId: r.itemId, weight: Number.isFinite(weight) && weight > 0 ? weight : 1 });
+      const positive = Number.isFinite(weight) && weight > 0 ? weight : 1;
+      rows.push({ kind: 'max', itemId: r.itemId, weight: Math.min(MAX_WEIGHT, positive) });
     }
   }
   const goals = (Array.isArray(raw.goals) ? raw.goals : []).filter((g) => typeof g === 'string');

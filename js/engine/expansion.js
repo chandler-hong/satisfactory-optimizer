@@ -341,7 +341,17 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   const maxRows = all.filter((r) => r?.kind === 'max');
   const maxTargets = maxRows
     .filter((r) => typeof r?.itemId === 'string' && r.itemId)
-    .map((r) => ({ itemId: r.itemId, weight: Number(r.weight) > 0 ? Number(r.weight) : 1 }));
+    .map((r) => {
+      // Number(x) > 0 alone lets a literal Infinity through (Infinity > 0 is
+      // true), which the UI layer's sanitizeState already blocks on reload but
+      // this direct-from-row-read path does not go through. No ceiling here:
+      // the LP takes a weight as one more coefficient, not an allocation size
+      // (see planExpansion (max): stays bounded at a rate/SETS ratio above 1e4
+      // in test/engine/expansion.test.js, pinned at weight 100000), so this
+      // guard's job is finiteness, not magnitude.
+      const w = Number(r.weight);
+      return { itemId: r.itemId, weight: Number.isFinite(w) && w > 0 ? w : 1 };
+    });
   const isMax = mode === 'max' && maxTargets.length > 0;
 
   // In max mode the solver may not add to a declared line's primary output.

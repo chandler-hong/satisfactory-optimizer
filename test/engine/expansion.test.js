@@ -1460,6 +1460,48 @@ test('planExpansion (max): stays bounded at a rate/SETS ratio above 1e4', () => 
 });
 
 /**
+ * Task 4 fix round 1. `Number(r.weight) > 0` alone lets a literal Infinity
+ * through -- `Infinity > 0` is true in JavaScript -- so it used to reach the
+ * LP as a real coefficient instead of being rejected like any other invalid
+ * weight. Confirmed empirically before this fix: weight: Infinity on this
+ * same catalyst/widget toy corrupted the whole solve (sets collapsed to 0 and
+ * bounded flipped to false), which is not the same thing as a genuinely
+ * unbounded plan -- it is the LP quietly failing. The guard now requires
+ * Number.isFinite, so an invalid weight falls back to the same default of 1
+ * as a missing or non-numeric weight already did, and reads identically to
+ * weight: 1 on the same toy used above. NaN and -Infinity are included too:
+ * `NaN > 0` and `-Infinity > 0` are both already false, so those were never
+ * broken, but neither had engine-level coverage before this test.
+ */
+test('planExpansion (max): a non-finite weight falls back to 1 instead of reaching the LP', () => {
+  const dataset = {
+    rawResourceIds: new Set(),
+    recipes: [{ id: 'r', name: 'r', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] }],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['catalyst', { id: 'catalyst', name: 'Catalyst', slug: 'catalyst' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const run = (weight) => planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate: 1 },
+      { kind: 'max', itemId: 'widget', weight },
+    ],
+    enabledRecipeIds: new Set(['r']),
+    mode: 'max',
+  });
+  const baseline = run(1);
+  for (const weight of [Infinity, -Infinity, NaN]) {
+    const p = run(weight);
+    assert.equal(p.maximize.sets, baseline.maximize.sets, `weight: ${weight} must solve to the same sets as weight: 1, got ${p.maximize.sets}`);
+    assert.equal(p.maximize.bounded, true, `weight: ${weight} must not corrupt the solve into reading unbounded`);
+    assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['catalyst'], `weight: ${weight} must still read catalyst as the limiting supply`);
+  }
+});
+
+/**
  * Fix round 4, finding (b). supplyUsage's `capped` widened its exhaustion
  * margin unconditionally (fix round 3, smaller 1) even though the comment
  * directly above supplyUsage's construction already argues targets mode
