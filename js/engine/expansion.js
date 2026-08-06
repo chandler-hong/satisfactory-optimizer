@@ -10,7 +10,7 @@
  * @typedef {import('../domain/model.js').Dataset} Dataset
  */
 import { netPerMin } from '../domain/model.js';
-import { hitTargets } from './optimize.js';
+import { hitTargets, maxSets } from './optimize.js';
 import { realize } from './physical-layer.js';
 import { beltReport } from './belt-layer.js';
 import { analyzeRequirements } from './requirements.js';
@@ -87,6 +87,48 @@ export function pinnedBalance(dataset, blockRows) {
   }
   for (const [k, v] of net) net.set(k, round6(v));
   return net;
+}
+
+/**
+ * Primary-output item ids the given block rows declare. Shared by
+ * blockOutputExclusions and the max-mode binding readout in planExpansion, so
+ * both agree on exactly what "declared" means without duplicating the walk.
+ */
+function declaredPrimaryOutputs(dataset, blockRows) {
+  const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
+  const declared = new Set();
+  for (const b of blockRows || []) {
+    const resolved = blockLoad(byId, b);
+    if (!resolved || resolved.load <= 0) continue;
+    const primary = resolved.recipe.outputs?.[0]?.itemId;
+    if (primary) declared.add(primary);
+  }
+  return declared;
+}
+
+/**
+ * Recipe ids the solver must NOT use in max mode: anything producing a block
+ * row's PRIMARY output. A block is a statement about your capacity for that item
+ * ("my Motor line makes 30/min"), so letting the solver add more would make the
+ * maximum unbounded — raws are free here, so it would just build more from ore.
+ *
+ * Scoped to outputs[0] deliberately. A block's byproducts stay available: a
+ * Scrap line also outputs Water, and excluding every water-producing recipe in
+ * the game because one block mentions it would wreck the plan. Have rows are
+ * likewise untouched — "I can draw 300/min off my bus" is a floor, not a claim
+ * that no more can exist.
+ *
+ * This never removes the block itself: blocks are applied through pinnedBalance,
+ * never through enabledRecipeIds.
+ */
+export function blockOutputExclusions(dataset, blockRows) {
+  const declared = declaredPrimaryOutputs(dataset, blockRows);
+  const excluded = new Set();
+  if (declared.size === 0) return excluded;
+  for (const r of dataset.recipes) {
+    if ((r.outputs || []).some((o) => declared.has(o.itemId))) excluded.add(r.id);
+  }
+  return excluded;
 }
 
 /**
@@ -261,7 +303,7 @@ export function rawNeededRows(dataset, rawUsage, rawSupplied) {
  * @param {{dataset: Dataset, rows: object[], enabledRecipeIds: Set<string>,
  *          shardBudget?: number, beltTier?: string, pipeTier?: string}} args
  */
-export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0, beltTier = 'Mk4', pipeTier = 'Mk2' }) {
+export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0, beltTier = 'Mk4', pipeTier = 'Mk2', mode = 'targets' }) {
   const all = rows || [];
   const blockRows = all.filter((r) => r?.kind === 'block');
   const wantRows = all.filter((r) => r?.kind === 'want');
@@ -278,9 +320,26 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     for (const itemId of touched(r)) if (dataset.rawResourceIds.has(itemId)) caps.set(itemId, Infinity);
   }
 
-  const solved = targets.size > 0
-    ? hitTargets({ dataset, caps, enabledRecipeIds, targets, supplies })
-    : { feasible: true, recipeRates: new Map(), shortfalls: new Map(), supplyDrawn: supplies.map((s) => ({ itemId: s.itemId, kind: s.kind, used: 0 })) };
+  const maxRows = all.filter((r) => r?.kind === 'max');
+  const maxTargets = maxRows
+    .filter((r) => typeof r?.itemId === 'string' && r.itemId)
+    .map((r) => ({ itemId: r.itemId, weight: Number(r.weight) > 0 ? Number(r.weight) : 1 }));
+  const isMax = mode === 'max' && maxTargets.length > 0;
+
+  // In max mode the solver may not add to a declared line's primary output.
+  const excluded = isMax ? blockOutputExclusions(dataset, blockRows) : new Set();
+  const solveEnabled = excluded.size > 0
+    ? new Set([...enabledRecipeIds].filter((id) => !excluded.has(id)))
+    : enabledRecipeIds;
+
+  let solved;
+  if (isMax) {
+    solved = maxSets({ dataset, caps, enabledRecipeIds: solveEnabled, targets: maxTargets, supplies });
+  } else if (targets.size > 0) {
+    solved = hitTargets({ dataset, caps, enabledRecipeIds, targets, supplies });
+  } else {
+    solved = { feasible: true, recipeRates: new Map(), shortfalls: new Map(), supplyDrawn: supplies.map((s) => ({ itemId: s.itemId, kind: s.kind, used: 0 })) };
+  }
 
   const recipeRates = solved.recipeRates;
   const phys = realize({ dataset, recipeRates, shardBudget });
@@ -411,7 +470,9 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   for (const [itemId, v] of rawCredit) add(rawUsage, itemId, -v);
   for (const [itemId, v] of rawUsage) rawUsage.set(itemId, Math.max(0, v));
 
-  const shortfalls = [...solved.shortfalls].map(([itemId, amount]) => ({
+  // maxSets (max mode) reports no shortfalls field at all — hitTargets is the
+  // only solve path that ever populates one — so this must not assume it exists.
+  const shortfalls = [...(solved.shortfalls || new Map())].map(([itemId, amount]) => ({
     itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId),
     amount: Math.round(amount * 100) / 100, fluid: fluidOf(dataset, itemId),
   }));
@@ -432,8 +493,45 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     missing: analysis.perTarget.filter((t) => t.status === 'missing').map(shapeTarget),
   };
 
+  // Binding = this declared supply was consumed to exhaustion. Computed here
+  // from solved.supplyDrawn rather than from supplyUsage below, which is
+  // filtered to kind==='have' and whose `capped` flag additionally requires
+  // builtItems.has(itemId) — never true in max mode, since the item's own
+  // recipes are excluded by design rather than LP-built.
+  //
+  // Restricted to declaredPrimaries (this plan's declared block outputs), not
+  // every supply regardless of kind: a have row's own recipe stays enabled (see
+  // blockOutputExclusions above — only a block's primary output is excluded),
+  // so the min-raw second pass is always free to substitute the near-zero-cost
+  // have draw for real production up to its cap. That draws it to `used === rate`
+  // as a pure cost-minimization artifact, not because the have row is the true
+  // bottleneck — the same is true of a block's own BYPRODUCT, which lands in
+  // `supplies` as 'pinned' but, like a have row, was never excluded either.
+  const maximize = !isMax ? undefined : (() => {
+    const declaredPrimaries = declaredPrimaryOutputs(dataset, blockRows);
+    const drawn = solved.supplyDrawn || [];
+    const bindingItems = supplies
+      .map((s, i) => ({ s, used: drawn[i]?.used ?? 0 }))
+      .filter(({ s, used }) => declaredPrimaries.has(s.itemId) && s.rate > EPS && used >= s.rate - EPS)
+      .map(({ s }) => ({ itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6(s.rate) }));
+    return {
+      sets: round6(solved.sets || 0),
+      perPart: (solved.perPart || []).map((p) => ({
+        itemId: p.itemId,
+        name: nameOf(dataset, p.itemId),
+        slug: slugOf(dataset, p.itemId),
+        fluid: fluidOf(dataset, p.itemId),
+        weight: p.weight,
+        rate: round6(p.rate),
+      })),
+      bindingItems,
+      bounded: bindingItems.length > 0,
+    };
+  })();
+
   return {
     feasible: solved.feasible,
+    mode,
     // Counts rows as SUBMITTED, before validation, so it's true for a plan whose
     // only row has a stale recipeId and therefore produces nothing. Not the flag
     // to branch on when deciding whether to render — expansion-render.js's
@@ -478,6 +576,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     rawNeeded: rawNeededRows(dataset, rawUsage, rawSupplied),
     shortfalls,
     requirements,
+    maximize,
     beltRows: belts.map((f) => ({ itemId: f.itemId, name: nameOf(dataset, f.itemId), slug: slugOf(dataset, f.itemId), rate: f.rate, lines: f.lines, tier: f.tier, fluid: f.fluid, saturated: f.saturated })),
   };
 }

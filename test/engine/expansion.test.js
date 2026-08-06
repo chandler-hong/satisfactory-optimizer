@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pinnedBalance, splitDemand, computeNetOutput, planExpansion } from '../../js/engine/expansion.js';
+import { pinnedBalance, splitDemand, computeNetOutput, planExpansion, blockOutputExclusions } from '../../js/engine/expansion.js';
 import { buildGraph } from '../../js/engine/graph.js';
 import { normalize } from '../../js/data/normalize.js';
 import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
@@ -753,4 +753,130 @@ test('planExpansion (D7): a zero-machines block row is excluded from the graph m
   assert.equal(p.graphRates.has('screw'), false, 'a 0-machine row must not create a graphRates entry at all');
   const graph = buildGraph(ironChain, p.graphRates, p.graphMachinesById, [...p.netOutput.keys()], p.externallyFedLoad);
   assert.ok(!graph.nodes.some((n) => n.id === 'screw'), 'a 0-machine block must not draw a phantom node in the diagram');
+});
+
+// --- Maximize mode -----------------------------------------------------------
+
+const planMax = (rows, extra = {}) => planExpansion({
+  dataset: ironChain, rows, enabledRecipeIds: ALL_IRON_RECIPES, mode: 'max', ...extra,
+});
+
+/**
+ * The bound is what you declared. A Built screw block makes 80 screw/min; rotor
+ * takes 100 screw per 4 rotor (25 each), so the most rotors is 3.2/min. rod is
+ * built freely from uncapped ore, which is the point — you get told what to add.
+ */
+test('planExpansion (max): a block bounds the maximum at its own output', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ]);
+  assert.equal(p.mode, 'max');
+  assert.equal(p.maximize.bounded, true);
+  assert.ok(Math.abs(p.maximize.sets - 3.2) < 1e-6, `expected 3.2, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.perPart.length, 1);
+  assert.equal(p.maximize.perPart[0].itemId, 'rotor');
+  assert.ok(Math.abs(p.maximize.perPart[0].rate - 3.2) < 1e-6);
+  assert.deepEqual(p.maximize.bindingItems.map((b) => b.itemId), ['screw'],
+    'and it names the line that bound the answer');
+  assert.ok(machinesOf(p, 'rod') > 0, 'rod is still built for you from free ore');
+});
+
+/**
+ * The test that would have caught the 21-million bug. Without the exclusion the
+ * solver builds screws from uncapped ore and the answer runs to the 1e9 raw
+ * clamp instead of being bounded by the declared line.
+ */
+test('planExpansion (max): excluding the block output recipe is what bounds it', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ]);
+  assert.ok(p.maximize.sets < 100,
+    `a bounded answer must be small; ${p.maximize.sets} means the screw recipe was not excluded`);
+});
+
+test('planExpansion (max): with nothing declared, it reports unbounded and no rate', () => {
+  const p = planMax([{ kind: 'max', itemId: 'rotor', weight: 1 }]);
+  assert.equal(p.maximize.bounded, false, 'nothing declared can bound this');
+  assert.deepEqual(p.maximize.bindingItems, []);
+});
+
+test('planExpansion (max): a declared line that the target does not need is not binding', () => {
+  // A Built plate block cannot bound rotor here: plate sits on a side branch off
+  // ingot (ingot -> plate) that rotor's chain never touches (rotor <- rod, screw
+  // <- rod <- ingot <- ore), so the answer is unbounded, not sized to the block.
+  const p = planMax([
+    { kind: 'block', recipeId: 'plate', machines: 1, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ]);
+  assert.equal(p.maximize.bounded, false,
+    'the plate line is not on rotor\'s dependency chain, so nothing is binding');
+});
+
+test('planExpansion (max): a HAVE row is a floor to draw on, not a ceiling', () => {
+  // screw recipes stay enabled here (no screw block), so the have row caps
+  // nothing — the solver may build more screws and the answer is unbounded.
+  const p = planMax([
+    { kind: 'have', itemId: 'screw', rate: 80 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ]);
+  assert.equal(p.maximize.bounded, false, 'a have row does not exclude the item\'s recipes');
+});
+
+test('planExpansion (max): balanced sets weight the targets against each other', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 4, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+    { kind: 'max', itemId: 'rod', weight: 2 },
+  ]);
+  assert.equal(p.maximize.perPart.length, 2);
+  const rotor = p.maximize.perPart.find((x) => x.itemId === 'rotor');
+  const rod = p.maximize.perPart.find((x) => x.itemId === 'rod');
+  assert.ok(Math.abs(rod.rate - 2 * rotor.rate) < 1e-6,
+    'weight 2 means twice as much rod as rotor, per set');
+});
+
+/**
+ * Tests blockOutputExclusions directly rather than through a plan. Going through
+ * planExpansion here would need a disjunctive assertion ("bMaker was built OR the
+ * answer was unbounded"), which passes trivially via the second clause and proves
+ * nothing — exactly the non-discriminating shape that slipped through twice on
+ * the previous round of this feature. The exclusion set is pure and exported, so
+ * assert on it.
+ */
+test('blockOutputExclusions: only the primary output is excluded, not a byproduct', () => {
+  // dualOut makes 'a' (primary) and 'b' (byproduct). bMaker also makes 'b'.
+  const twoOut = {
+    ...ironChain,
+    recipes: [...ironChain.recipes,
+      { id: 'dualOut', name: 'dualOut', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 10 }], outputs: [{ itemId: 'a', perMin: 5 }, { itemId: 'b', perMin: 3 }] },
+      { id: 'bMaker', name: 'bMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 2 }], outputs: [{ itemId: 'b', perMin: 4 }] },
+      { id: 'aMaker', name: 'aMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 9 }], outputs: [{ itemId: 'a', perMin: 5 }] },
+    ],
+  };
+  const ex = blockOutputExclusions(twoOut, [{ kind: 'block', recipeId: 'dualOut', machines: 1, clock: 1 }]);
+  assert.equal(ex.has('dualOut'), true, 'the declared line itself produces the primary output');
+  assert.equal(ex.has('aMaker'), true, 'and so does any other route to that primary output');
+  assert.equal(ex.has('bMaker'), false,
+    "the byproduct 'b' is NOT a declared ceiling, so its other producer stays available");
+});
+
+test('blockOutputExclusions: a have row excludes nothing', () => {
+  const ex = blockOutputExclusions(ironChain, []);
+  assert.equal(ex.size, 0, 'no blocks means no exclusions — have rows never exclude');
+});
+
+test('blockOutputExclusions: a stale or zero-machine block row excludes nothing', () => {
+  const stale = blockOutputExclusions(ironChain, [{ kind: 'block', recipeId: 'no_such', machines: 2, clock: 1 }]);
+  assert.equal(stale.size, 0, 'an unresolvable recipeId is skipped, matching pinnedBalance');
+  const zero = blockOutputExclusions(ironChain, [{ kind: 'block', recipeId: 'screw', machines: 0, clock: 1 }]);
+  assert.equal(zero.size, 0, 'a zero-load row declares no capacity, so it is not a ceiling');
+});
+
+test('planExpansion: mode defaults to targets, so every existing caller is unaffected', () => {
+  const withoutMode = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
+  const withMode = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }], { mode: 'targets' });
+  assert.equal(withoutMode.tiles.machines, withMode.tiles.machines);
+  assert.equal(withoutMode.maximize, undefined, 'targets mode carries no maximize readout');
 });
