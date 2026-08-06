@@ -173,3 +173,28 @@ test('sanitizeState (D8): alts drops non-string entries even with no knownRecipe
   // `typeof id === 'string'` filter itself is doing the work.
   assert.deepEqual(sanitizeState({ alts: ['x', 42] }).alts, ['x'], 'a non-string alt id must be dropped even when no known-id set is supplied');
 });
+
+test('sanitizeState: mode accepts only max or targets, defaulting to targets', () => {
+  assert.equal(sanitizeState(null).mode, 'targets');
+  assert.equal(sanitizeState({}).mode, 'targets');
+  assert.equal(sanitizeState({ mode: 'max' }).mode, 'max');
+  assert.equal(sanitizeState({ mode: 'targets' }).mode, 'targets');
+  assert.equal(sanitizeState({ mode: 'nonsense' }).mode, 'targets', 'an unknown mode falls back');
+  assert.equal(sanitizeState({ mode: 7 }).mode, 'targets', 'a non-string falls back');
+});
+
+test('sanitizeState: max rows keep an itemId and a positive weight', () => {
+  const s = sanitizeState({ rows: [
+    { kind: 'max', itemId: 'a' },
+    { kind: 'max', itemId: 'b', weight: 3 },
+    { kind: 'max', itemId: 'c', weight: -2 },
+    { kind: 'max', itemId: 'd', weight: 'abc' },
+    { kind: 'max', weight: 2 },
+  ] });
+  assert.deepEqual(s.rows, [
+    { kind: 'max', itemId: 'a', weight: 1 },
+    { kind: 'max', itemId: 'b', weight: 3 },
+    { kind: 'max', itemId: 'c', weight: 1 },
+    { kind: 'max', itemId: 'd', weight: 1 },
+  ], 'a missing/invalid weight becomes 1; a row with no itemId is dropped');
+});

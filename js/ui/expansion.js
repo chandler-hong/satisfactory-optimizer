@@ -18,7 +18,7 @@ import { renderPlan, renderGoals } from './expansion-render.js';
 
 const STATE_KEY = 'sat-optimizer:expansion:v1';
 const DEFAULT_FILL_MINUTES = 10;
-export const DEFAULT_STATE = { rows: [], goals: [], fillMinutes: DEFAULT_FILL_MINUTES, alts: [] };
+export const DEFAULT_STATE = { rows: [], goals: [], fillMinutes: DEFAULT_FILL_MINUTES, alts: [], mode: 'targets' };
 
 function el(tag, className) {
   const n = document.createElement(tag);
@@ -78,6 +78,10 @@ export function sanitizeState(raw, knownRecipeIds) {
       const rate = Number(r.rate);
       if (typeof r.itemId !== 'string' || !Number.isFinite(rate)) continue;
       rows.push({ kind: r.kind, itemId: r.itemId, rate: clampTo(MAX_RATE, rate) });
+    } else if (r.kind === 'max') {
+      if (typeof r.itemId !== 'string' || !r.itemId) continue;
+      const weight = Number(r.weight);
+      rows.push({ kind: 'max', itemId: r.itemId, weight: Number.isFinite(weight) && weight > 0 ? weight : 1 });
     }
   }
   const goals = (Array.isArray(raw.goals) ? raw.goals : []).filter((g) => typeof g === 'string');
@@ -93,7 +97,8 @@ export function sanitizeState(raw, knownRecipeIds) {
   const alts = (Array.isArray(raw.alts) ? raw.alts : [])
     .filter((id) => typeof id === 'string')
     .filter((id) => !canFilter || knownRecipeIds.has(id));
-  return { rows, goals, fillMinutes: Number.isFinite(fill) && fill > 0 ? fill : DEFAULT_FILL_MINUTES, alts };
+  const mode = raw.mode === 'max' ? 'max' : 'targets';
+  return { rows, goals, fillMinutes: Number.isFinite(fill) && fill > 0 ? fill : DEFAULT_FILL_MINUTES, alts, mode };
 }
 
 function loadState(knownRecipeIds) {
