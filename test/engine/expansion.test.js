@@ -777,8 +777,8 @@ test('planExpansion (max): a block bounds the maximum at its own output', () => 
   assert.equal(p.maximize.perPart.length, 1);
   assert.equal(p.maximize.perPart[0].itemId, 'rotor');
   assert.ok(Math.abs(p.maximize.perPart[0].rate - 3.2) < 1e-6);
-  assert.deepEqual(p.maximize.bindingItems.map((b) => b.itemId), ['screw'],
-    'and it names the line that bound the answer');
+  assert.deepEqual(p.maximize.atLimitItems.map((b) => b.itemId), ['screw'],
+    'and it names the line fully consumed to reach that answer');
   assert.ok(machinesOf(p, 'rod') > 0, 'rod is still built for you from free ore');
 });
 
@@ -799,7 +799,7 @@ test('planExpansion (max): excluding the block output recipe is what bounds it',
 test('planExpansion (max): with nothing declared, it reports unbounded and no rate', () => {
   const p = planMax([{ kind: 'max', itemId: 'rotor', weight: 1 }]);
   assert.equal(p.maximize.bounded, false, 'nothing declared can bound this');
-  assert.deepEqual(p.maximize.bindingItems, []);
+  assert.deepEqual(p.maximize.atLimitItems, []);
 });
 
 test('planExpansion (max): a declared line that the target does not need is not binding', () => {
@@ -864,7 +864,7 @@ test('planExpansion (max): a bypass route around a declared line is unbounded, n
     `expected a clamp-scale runaway answer (castScrew makes rip's screw need free), got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, false,
     'rod being fully drawn does not mean rod bounds rip: castScrew gives rip a second, unbounded route');
-  assert.deepEqual(p.maximize.bindingItems, [],
+  assert.deepEqual(p.maximize.atLimitItems, [],
     'fix round 2, D: rod IS fully drawn here, but bounded:false must not leave it named as if it were binding');
 });
 
@@ -892,7 +892,7 @@ test('planExpansion (max): an orphaned byproduct with no other producer is a gen
   });
   assert.equal(p.maximize.bounded, true, 'b has no remaining producer once dual is excluded, so it is a real ceiling');
   assert.ok(Math.abs(p.maximize.sets - 3) < 1e-6, `expected 3 (dual's b output at 1 machine), got ${p.maximize.sets}`);
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['b']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['b']);
 });
 
 test('planExpansion (max): the same byproduct is not a ceiling once an independent producer exists', () => {
@@ -914,7 +914,7 @@ test('planExpansion (max): the same byproduct is not a ceiling once an independe
     mode: 'max',
   });
   assert.equal(p.maximize.bounded, false, 'b now has an independent producer, so nothing bounds t');
-  assert.deepEqual(p.maximize.bindingItems, []);
+  assert.deepEqual(p.maximize.atLimitItems, []);
 });
 
 /**
@@ -932,7 +932,7 @@ test('planExpansion (max): the same byproduct is not a ceiling once an independe
  * maximum (verified directly against r1: bounded false, objective Infinity,
  * values holding _supply_have_protein at exactly 100). Guarding
  * supplyAtMax's fill on `r1.bounded` (optimize.js) keeps that cap-parked
- * value out of bindingItems here; without the guard, protein would read as
+ * value out of atLimitItems here; without the guard, protein would read as
  * fully drawn with no other producer, which flips `bounded` to true (its
  * other guard, lpNetRaw, is vacuously true too — neither route here ever
  * touches ore) on an answer that is genuinely unbounded.
@@ -955,7 +955,7 @@ test('planExpansion (max): an unbounded plan that fully drains a have row first 
     'freeStone has no inputs at all, so stone is genuinely unbounded, not merely clamp-scale-huge');
   assert.equal(p.maximize.bounded, false,
     'protein being fully drawn does not mean protein bounds stone: freeStone gives stone a second, unbounded route');
-  assert.deepEqual(p.maximize.bindingItems, [],
+  assert.deepEqual(p.maximize.atLimitItems, [],
     'fix round 2, D (and round 5): protein IS drawn to its cap here, but bounded:false must not leave it named as if it were binding');
 });
 
@@ -1001,7 +1001,7 @@ test('planExpansion (max): a partially-drawn declared line is not binding, only 
     { kind: 'max', itemId: 'rotor', weight: 1 },
   ]);
   assert.equal(p.maximize.bounded, true);
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['rod'],
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['rod'],
     'screw is only 75 of its declared 800/min here, nowhere near its cap, so it must not appear');
 });
 
@@ -1011,7 +1011,7 @@ test('planExpansion (max): a partially-drawn declared line is not binding, only 
  * (buildMinRawForSetsModel pins SETS at minSets - |minSets|*1e-9 - 1e-9). That
  * breaks down once the declared rate clears about 1000/min (EPS / 1e-9):
  * screw at 2000/min here is the exact repro — the reported sets stayed
- * correct at every scale, but bounded/bindingItems silently went to
+ * correct at every scale, but bounded/atLimitItems silently went to
  * false/[] above the break point, defeating the feature at an entirely
  * ordinary production rate.
  */
@@ -1022,7 +1022,7 @@ test('planExpansion (max): a declared line at realistic (2000+/min) scale still 
   ]);
   assert.equal(p.maximize.bounded, true,
     'a declared line at 2000/min must still read bounded, not silently flip false once the rate is realistic');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['screw']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['screw']);
   assert.ok(Math.abs(p.maximize.sets - 80) < 1e-6, `expected 80 (2000 screw / 25 per rotor), got ${p.maximize.sets}`);
 });
 
@@ -1047,7 +1047,7 @@ test('planExpansion (max): an unrelated raw want row does not falsely unbound a 
   ]);
   assert.equal(p.maximize.bounded, true,
     'the screw line still bounds rotor the same way regardless of an unrelated raw want row');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['screw']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['screw']);
   assert.ok(Math.abs(p.maximize.sets - 3.2) < 1e-6, `expected 3.2, got ${p.maximize.sets}`);
 });
 
@@ -1060,7 +1060,7 @@ test('planExpansion (max): an unrelated raw want row does not falsely unbound a 
  * rod line), plus an oreMaker block crediting 34000 * 30 = 1,020,000/min ore —
  * comfortably past the ~1e6 margin round 1 shipped. Before this fix, that
  * credit alone was enough to make the exact same runaway-to-the-clamp plan
- * (sets in the tens of millions) read bounded:true with bindingItems:["rod"].
+ * (sets in the tens of millions) read bounded:true with atLimitItems:["rod"].
  */
 test('planExpansion (max): a large block rawCredit does not reopen the bypass-route Critical', () => {
   const castScrew = { id: 'castScrew', name: 'castScrew', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ingot', perMin: 10 }], outputs: [{ itemId: 'screw', perMin: 20 }] };
@@ -1081,7 +1081,7 @@ test('planExpansion (max): a large block rawCredit does not reopen the bypass-ro
     `expected the same clamp-scale runaway answer as the plain bypass case, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, false,
     "a block crediting ~1e6/min of the runaway raw must not resurrect the Critical's false bound");
-  assert.deepEqual(p.maximize.bindingItems, []);
+  assert.deepEqual(p.maximize.atLimitItems, []);
 });
 
 /**
@@ -1157,7 +1157,7 @@ test('planExpansion: a max row is inert unless mode is explicitly "max"', () => 
  * as an output," never "can that recipe actually run." An item whose only
  * producers are structurally dead -- their own inputs have no producer at
  * all, raw or otherwise -- read as freely buildable, so a declared supply
- * that really is the ceiling got filtered out of bindingItems and `bounded`
+ * that really is the ceiling got filtered out of atLimitItems and `bounded`
  * collapsed to false on a correct answer.
  *
  * wood has zero producers in this dataset and is not raw, so deadBiomass
@@ -1166,7 +1166,7 @@ test('planExpansion: a max row is inert unless mode is explicitly "max"', () => 
  * doesn't, in the real dataset -- but other foraged items reach this same
  * shape; see the comment above). have biomass at 500/min + max fuel
  * (biomass(2) -> fuel(1)) should read sets=250, bounded:true,
- * bindingItems:['biomass'] -- this is the "present and enabled" case, the
+ * atLimitItems:['biomass'] -- this is the "present and enabled" case, the
  * one the old syntactic check got wrong.
  */
 test('planExpansion (max): a structurally dead producer does not suppress a correct bound', () => {
@@ -1186,7 +1186,7 @@ test('planExpansion (max): a structurally dead producer does not suppress a corr
   assert.ok(Math.abs(p.maximize.sets - 250) < 1e-6, `expected 250, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, true,
     'a structurally dead producer (deadBiomass, fed by wood, which has no producer of its own) must not read as a live one');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['biomass']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['biomass']);
 });
 
 /**
@@ -1211,7 +1211,7 @@ test('planExpansion (max): control -- the same dead producer, user-disabled, rea
   });
   assert.ok(Math.abs(p.maximize.sets - 250) < 1e-6, `expected 250, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, true);
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['biomass']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['biomass']);
 });
 
 /**
@@ -1235,7 +1235,7 @@ test('planExpansion (max): control -- no dead producer in the dataset at all rea
   });
   assert.ok(Math.abs(p.maximize.sets - 250) < 1e-6, `expected 250, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, true);
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['biomass']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['biomass']);
 });
 
 /**
@@ -1243,7 +1243,7 @@ test('planExpansion (max): control -- no dead producer in the dataset at all rea
  * solved.supplyDrawn unconditionally, before the mode branch (see the
  * comment above supplyUsage's construction) -- in max mode that draw comes
  * from pass 2's own relative give, the same one round 2, A widened
- * bindingItems' margin for, but `capped` still compared against a flat EPS.
+ * atLimitItems' margin for, but `capped` still compared against a flat EPS.
  *
  * gizmoMaker (catalyst -> screwAlt) is a cost-degenerate alternate route to
  * screwAlt that only becomes worth running once the screwAlt have row itself
@@ -1309,12 +1309,12 @@ test('planExpansion (max): bounded stays true just inside the relative RAW_CLAMP
   assert.ok(Math.abs(p.maximize.sets - 1000) < 1e-6, `expected 1000, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, true,
     'ore usage lands just inside the relative RAW_CLAMP margin, so this must not read as hitting the clamp');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['part']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['part']);
 });
 
 /**
  * Fix round 4, main fix. Rounds 1, 2, and 4 (the guard breaking a fourth
- * time) are all one bug: bindingItems used to test "was this declared
+ * time) are all one bug: atLimitItems used to test "was this declared
  * supply fully drawn" against solved.supplyDrawn, which tracks pass 2
  * (buildMinRawForSetsModel) -- and pass 2 pins SETS via a give with both a
  * relative AND a flat term (`minSets - Math.abs(minSets) * 1e-9 - 1e-9`), so
@@ -1328,7 +1328,7 @@ test('planExpansion (max): bounded stays true just inside the relative RAW_CLAMP
  * widget(1). At weight 1000 the old code still read bounded:true; at weight
  * 1001 sets drops to 0.000999 and pass 2's own draw on catalyst falls short
  * by ~2e-6 -- past the old Math.max(EPS, rate*1e-6) margin (rate=1, so the
- * margin was ~1e-6) -- which silently dropped catalyst out of bindingItems
+ * margin was ~1e-6) -- which silently dropped catalyst out of atLimitItems
  * and flipped bounded to false on a correct, fully-bound answer ("the silent
  * flip"). The fix reads bindingness off pass 1 (buildMaxSetsModel) instead,
  * which has no give at all, so a truly binding supply is drawn to exactly
@@ -1355,7 +1355,7 @@ test('planExpansion (max): weight 1001 no longer silently flips bounded to false
   });
   assert.ok(Math.abs(p.maximize.sets - 0.000999) < 1e-9, `expected sets ~0.000999, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, true, 'catalyst is fully drawn at weight 1001 -- must not silently flip to false');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['catalyst']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['catalyst']);
 });
 
 /**
@@ -1395,7 +1395,7 @@ test('planExpansion (max): a 1%-clock block feeding a 1400-per-unit target reads
   const expectedSets = Math.round((0.4 / 1400) * 1e6) / 1e6;
   assert.ok(Math.abs(p.maximize.sets - expectedSets) < 1e-9, `expected sets ~${expectedSets}, got ${p.maximize.sets}`);
   assert.equal(p.maximize.bounded, true, 'the pinned screw block is fully drawn -- must read bounded, not silently unbounded');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['screw']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['screw']);
 });
 
 /**
@@ -1429,7 +1429,7 @@ test('planExpansion (max): stays bounded at a rate/SETS ratio above 1e4', () => 
   const ratio = 1 / p.maximize.sets;
   assert.ok(ratio > 1e4, `test setup check: expected ratio above 1e4, got ${ratio}`);
   assert.equal(p.maximize.bounded, true, 'must stay bounded well past the regime round 3 only probed inside');
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['catalyst']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId), ['catalyst']);
 });
 
 /**
@@ -1482,7 +1482,7 @@ test('planExpansion (targets): capped reads false for a supply with genuine slac
 
 /**
  * Not a mutation-discriminating test (checked: it passes against both the
- * old and the new bindingItems code -- see the round 4 report's "Concerns"
+ * old and the new atLimitItems code -- see the round 4 report's "Concerns"
  * section for why: both supplies here are strictly required to reach pass
  * 1's true maximum, so there is no cost-based fungibility for pass 2 to
  * arbitrate between them, and pass 1 itself has no cost term at all. Kept
@@ -1491,10 +1491,10 @@ test('planExpansion (targets): capped reads false for a supply with genuine slac
  * screw 1:1 via separate recipes, screw feeds widget 1:1, demand is
  * unconstrained (max mode) -- the LP genuinely wants both fully drawn no
  * matter how large N gets relative to catalyst, and both must stay in
- * bindingItems. Confirmed directly through N = 1e9, nine orders past round
+ * atLimitItems. Confirmed directly through N = 1e9, nine orders past round
  * 3's own reproduction scale; encoding N = 1e7 here.
  *
- * This does NOT confirm or deny round 3's deferred concern (bindingItems'
+ * This does NOT confirm or deny round 3's deferred concern (atLimitItems'
  * old margin, tuned on each supply's own rate, could under-report a
  * small-rate supply when it is COST-FUNGIBLE with a much-larger one and
  * pass 2's give-driven cost-minimization -- not pass 1 -- decides which side
@@ -1532,5 +1532,5 @@ test('planExpansion (max): a tiny-rate supply stays binding even tied with a sup
     mode: 'max',
   });
   assert.equal(p.maximize.bounded, true);
-  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId).sort(), ['bulk', 'catalyst']);
+  assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId).sort(), ['bulk', 'catalyst']);
 });

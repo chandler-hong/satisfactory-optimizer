@@ -66,7 +66,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // relative AND a flat term — so `chosen`'s own draw on a genuinely binding
   // supply can fall short of its rate by more than any margin tuned off the
   // rate alone once sets is small (the flat term dominates there,
-  // non-monotonically — see js/engine/expansion.js's bindingItems comment).
+  // non-monotonically — see js/engine/expansion.js's atLimitItems comment).
   // Pass 1 (buildMaxSetsModel) has no such constraint at all: SETS is the
   // direct objective, not a bound relaxed by a give, so a supply that truly
   // constrains the maximum is drawn to its rate here, at every scale, closely
@@ -91,7 +91,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // that supply constrains anything, but because the simplex has no reason
   // to move off it along the unbounded ray. Filling supplyAtMax from that
   // vertex made every declared supply look fully drawn, which filled
-  // bindingItems, which (combined with an unbounded ray that happens to
+  // atLimitItems, which (combined with an unbounded ray that happens to
   // touch zero raw resources, leaving lpNetRaw empty and its `.every(...)`
   // vacuously true) made expansion.js report bounded:true on sets:Infinity --
   // the exact failure mode this whole fix (round 4) exists to prevent, now
@@ -102,7 +102,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // correctness and stopped applying the moment detection moved to pass 1.
   // Guarding the fill on r1.bounded leaves supplyAtMax all-zero on an
   // unbounded pass 1 (same as the already-handled infeasible path above), so
-  // bindingItems reads every supply as un-drawn and bounded correctly comes
+  // atLimitItems reads every supply as un-drawn and bounded correctly comes
   // back false. `sets` below can still read Infinity in this case (the
   // raw-resource-as-max-target edge case flagged out of scope since round
   // 1); bounded:false is the existing, already-relied-on signal callers use
@@ -113,7 +113,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
       d.used = Math.round(used * 1e6) / 1e6;
     }
   }
-  // Round 5 correction: the comment above (and expansion.js's bindingItems
+  // Round 5 correction: the comment above (and expansion.js's atLimitItems
   // comment) previously claimed pass 1 draws a binding supply to EXACTLY its
   // rate. False as stated -- there are two real error sources between pass
   // 1's true vertex and the `used` figure read out above. First, this loop's
@@ -122,7 +122,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // landing on the wrong side of a rounding-grid line. Second, the solver
   // carries its own relative floating-point error on top of that, on the
   // order of `rate * 1.2e-16`. Summed, the two first exceed EPS around
-  // rate >= ~8.31e9. The EPS margin in bindingItems still holds today only
+  // rate >= ~8.31e9. The EPS margin in atLimitItems still holds today only
   // because nothing reachable gets remotely close to that: the UI clamps a
   // declared have/want row to MAX_RATE=1e6 (js/ui/expansion.js), and a
   // block's own ceiling (MAX_MACHINES=9999 x a 2.5x clock cap x an upper-end

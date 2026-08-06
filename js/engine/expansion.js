@@ -446,7 +446,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // pinned entry in breaks 3 of them.
   //
   // Fix round 3, smaller 1 (superseded by round 4, see below): `capped`'s own
-  // margin needed the same relative widening bindingItems got in round 2, A.
+  // margin needed the same relative widening atLimitItems got in round 2, A.
   // This block is built from solved.supplyDrawn unconditionally, before the
   // mode branch, so in max mode it read pass 2's own give-reduced draw
   // against a flat EPS and could read `capped: false` on a have row
@@ -464,7 +464,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   //
   // In max mode, going further than a literal isMax-gate: `used` (chosen,
   // pass 2's give-perturbed draw) is exactly the quantity round 4 stopped
-  // trusting for bindingItems below, for exactly the same reason — a margin
+  // trusting for atLimitItems below, for exactly the same reason — a margin
   // tuned off `s.rate` alone cannot track buildMinRawForSetsModel's flat give
   // term, which dominates at small sets/large rate-to-sets ratios regardless
   // of which call site reads the number (see the round-4 comment on
@@ -524,7 +524,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // and falsely reports unbounded; a block crediting ~1e6+/min of a runaway
   // raw (rawCredit) pulls the adjusted total back under the clamp threshold
   // and falsely reports bounded — reopening the bypass-route Critical (sets in
-  // the tens of millions, bindingItems naming an unrelated declared line) by a
+  // the tens of millions, atLimitItems naming an unrelated declared line) by a
   // different route than the margin width fixed in round 1.
   const rawUsage = lpRawUsage(dataset, recipeRates);
   const lpNetRaw = new Map(rawUsage);
@@ -606,7 +606,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // the normalized dataset (foraged items are non-raw, non-produced — see
     // normalize.js). So an item that is genuinely dead read as freely
     // buildable, and the declared supply that really is the ceiling got
-    // filtered out of bindingItems, collapsing `bounded` to false on a
+    // filtered out of atLimitItems, collapsing `bounded` to false on a
     // correct answer — reachable via ordinary have/pinned rows on any
     // foraged item, and via a block's byproduct too (blockOutputExclusions
     // only excludes producers of the block's own primary output).
@@ -644,7 +644,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // tuned off `rate` alone, and is non-monotone in sets — there is no
     // floor a reader could reason about. Reproduced (fixed rate=1 supply):
     // shortfall against `chosen` went 1e-6 (sets~1e-3) -> 2e-6 -> 1e-5 as
-    // sets kept shrinking, silently emptying bindingItems and collapsing
+    // sets kept shrinking, silently emptying atLimitItems and collapsing
     // `bounded` to false on a correct answer. A max row's weight is
     // unvalidated user input (js/ui/inputs.js) with no upper bound, so this
     // is a keystroke away (weight 1000 -> bounded:true, weight 1001 ->
@@ -691,14 +691,14 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // supplyAtMax all-zero whenever pass 1 comes back unbounded, so `atMax`
     // here reads 0 for every supply and the filter below correctly finds
     // nothing binding — no change needed in this file for that fix, but a
-    // reader tracing why an unbounded plan reports bindingItems:[] should
+    // reader tracing why an unbounded plan reports atLimitItems:[] should
     // look there, not here.
     //
     // Fix round 5, also: two supplies can legitimately share one itemId (a
     // `have` row and a `pinned` block row for the same item, both drawn to
     // their own declared rate to reach the max) — pre-round-5, both survived
     // the filter below as separate entries, so the same item could appear in
-    // bindingItems twice. Deduped by itemId, summing `rate`: the two rows
+    // atLimitItems twice. Deduped by itemId, summing `rate`: the two rows
     // are two independent slices of the same item's total available supply,
     // both exhausted, so the combined rate is the real ceiling for that
     // item — reporting only one row's rate (arbitrarily picking whichever
@@ -709,7 +709,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
       const prior = byItemId.get(s.itemId);
       byItemId.set(s.itemId, { itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6((prior?.rate ?? 0) + s.rate) });
     }
-    const bindingItems = [...byItemId.values()];
+    const atLimitItems = [...byItemId.values()];
     // Margin below RAW_CLAMP: relative (fix round 2, C1), not the flat `1e6`
     // round 1 shipped. The structural solver gap observed at clamp scale is
     // ~1 raw unit (pass 2's relative-1e-9 give against pass 1's max, at SETS
@@ -723,7 +723,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // (fix round 2, B — see the comment where lpNetRaw is captured, above):
     // rawUsage folds in raw `want` rows and block rawCredit, neither of which
     // rawConstraints() (lp-builder.js) ever bounded.
-    const bounded = bindingItems.length > 0
+    const bounded = atLimitItems.length > 0
       && [...lpNetRaw.values()].every((v) => v < RAW_CLAMP * (1 - 1e-6));
     return {
       sets: round6(solved.sets || 0),
@@ -739,10 +739,10 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
       // whatever was fully drawn. The bypass-route Critical is exactly a case
       // where something IS fully drawn (rod) while the real answer runs away
       // on a different route — bounded:false already says "ignore this", but
-      // a renderer that lists bindingItems without checking bounded first
+      // a renderer that lists atLimitItems without checking bounded first
       // would print the very claim the Critical was about. The two fields can
       // no longer visually disagree.
-      bindingItems: bounded ? bindingItems : [],
+      atLimitItems: bounded ? atLimitItems : [],
       bounded,
     };
   })();
