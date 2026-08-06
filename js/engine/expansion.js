@@ -661,26 +661,55 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // all — read pass 1 instead. buildMaxSetsModel (pass 1) has NO give of
     // any kind: SETS is the direct objective, not a bound relaxed
     // afterward, so a supply that truly constrains the maximum is drawn to
-    // EXACTLY its rate there, at every scale — no margin modelling required,
-    // just a plain absolute EPS for solver-precision noise (the vendored
-    // solver's own rounding grid is 1e-8, two orders tighter than EPS).
-    // Verified empirically before shipping this: pass 1's shortfall was
-    // exactly 0 at every scale tried, weight 1 through 1e7, and
-    // independently via a rate/SETS ratio up to 1.4e3-to-1 — including a
-    // case where pass 2 itself came back infeasible, outrun by its own
-    // rounding. optimize.js's maxSets now returns supplyAtMax alongside
-    // supplyDrawn (pass 1's own draw, same one-entry-per-supply shape); this
-    // reads that (as `atMax`, above) instead of `drawn`/`chosen`'s.
+    // its rate there, at every scale, closely enough for a plain absolute
+    // EPS to catch it as fully drawn — no margin modelling required.
+    // (Round 5 correction: the prior wording here claimed EXACTLY and
+    // shortfall exactly 0 — false as stated. See optimize.js's supplyAtMax
+    // comment for the real two-source error bound and why EPS still clears
+    // it at every rate this codebase can actually produce; nothing here
+    // needed to change, only the claim.) Verified empirically before
+    // shipping this: pass 1's shortfall stayed unmeasurable at every scale
+    // tried, weight 1 through 1e7, and independently via a rate/SETS ratio
+    // up to 1.4e3-to-1 — including a case where pass 2 itself came back
+    // infeasible, outrun by its own rounding. optimize.js's maxSets now
+    // returns supplyAtMax alongside supplyDrawn (pass 1's own draw, same
+    // one-entry-per-supply shape); this reads that (as `atMax`, above)
+    // instead of `drawn`/`chosen`'s.
     //
     // supplyDrawn itself — and the `used` shown in supplyUsage above — stays
     // sourced from `chosen`: "how much did we use" (display, must match the
     // reported build) and "is this the binding constraint" (detection) are
     // different questions that were conflated onto one value since Task 2;
     // only detection moved here.
-    const bindingItems = supplies
-      .map((s, i) => ({ s, used: atMax[i]?.used ?? 0 }))
-      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - EPS && !hasEnabledProducer(s.itemId))
-      .map(({ s }) => ({ itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6(s.rate) }));
+    //
+    // Fix round 5, Critical: pass 1 can be UNBOUNDED (feasible:true,
+    // bounded:false, objective/sets:Infinity, reachable on the real dataset
+    // — see optimize.js's maxSets for the repro and the fix). jsLPSolver
+    // still hands back a finite vertex in that case, free to place every
+    // supply variable at its own cap for reasons that have nothing to do
+    // with any of them constraining the optimum. optimize.js now leaves
+    // supplyAtMax all-zero whenever pass 1 comes back unbounded, so `atMax`
+    // here reads 0 for every supply and the filter below correctly finds
+    // nothing binding — no change needed in this file for that fix, but a
+    // reader tracing why an unbounded plan reports bindingItems:[] should
+    // look there, not here.
+    //
+    // Fix round 5, also: two supplies can legitimately share one itemId (a
+    // `have` row and a `pinned` block row for the same item, both drawn to
+    // their own declared rate to reach the max) — pre-round-5, both survived
+    // the filter below as separate entries, so the same item could appear in
+    // bindingItems twice. Deduped by itemId, summing `rate`: the two rows
+    // are two independent slices of the same item's total available supply,
+    // both exhausted, so the combined rate is the real ceiling for that
+    // item — reporting only one row's rate (arbitrarily picking whichever
+    // came first) would silently understate it.
+    const byItemId = new Map();
+    for (const { s, used } of supplies.map((s, i) => ({ s, used: atMax[i]?.used ?? 0 }))) {
+      if (!(s.rate > EPS && used >= s.rate - EPS && !hasEnabledProducer(s.itemId))) continue;
+      const prior = byItemId.get(s.itemId);
+      byItemId.set(s.itemId, { itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6((prior?.rate ?? 0) + s.rate) });
+    }
+    const bindingItems = [...byItemId.values()];
     // Margin below RAW_CLAMP: relative (fix round 2, C1), not the flat `1e6`
     // round 1 shipped. The structural solver gap observed at clamp scale is
     // ~1 raw unit (pass 2's relative-1e-9 give against pass 1's max, at SETS

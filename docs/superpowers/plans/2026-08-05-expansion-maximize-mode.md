@@ -302,7 +302,7 @@ comes from the min-raw pass, so the drawn amounts have to come from there too."
 **Interfaces:**
 - Consumes: `maxSets` from Task 2 with `supplies` and `supplyDrawn`.
 - Produces: `planExpansion({ ..., mode = 'targets' })`. In `'max'` mode the return gains:
-  - `maximize: { sets: number, perPart: [{ itemId, name, slug, fluid, weight, rate }], bindingItems: [{ itemId, name, rate }], bounded: boolean }`
+  - `maximize: { sets: number, perPart: [{ itemId, name, slug, fluid, weight, rate }], atLimitItems: [{ itemId, name, rate }], bounded: boolean }`
   - `mode: 'targets' | 'max'` echoed back.
   A new row kind `{ kind: 'max', itemId, weight }` supplies the targets. Tasks 4 and 5 rely on these names.
 
@@ -842,7 +842,11 @@ function renderMaximizePanel(m) {
   }
   section.appendChild(list);
   const bound = el('p', 'hint');
-  bound.textContent = `Bound by ${m.bindingItems.map((b) => `${b.name} ${fmt1(b.rate)}/min`).join(', ')} — your line, fully used.`;
+  // "At their limit", NOT "bound by": naming which line CAUSES the maximum is
+  // ill-posed — where two declared lines are interchangeable feeds the LP has
+  // multiple optima and picks one arbitrarily. "Fully consumed" is true in every
+  // case. See the spec's note on this; it cost four fix rounds to establish.
+  bound.textContent = `At their limit: ${m.atLimitItems.map((b) => `${b.name} ${fmt1(b.rate)}/min`).join(', ')} (fully used).`;
   section.appendChild(bound);
   return section;
 }
@@ -876,7 +880,7 @@ Write a throwaway `_probe.html` at the repo root that loads `/` in an iframe, cl
   --screenshot=/tmp/max-mode.png 'http://localhost:8791/_probe.html'
 ```
 
-**Read the PNG.** Confirm: the Mode select shows Maximize; the "Most you can make" panel shows a rate and a "Bound by …" line; the Want section is hidden and Maximize is visible; the Goals note appears instead of the Goals checkboxes; no console or window errors.
+**Read the PNG.** Confirm: the Mode select shows Maximize; the "Most you can make" panel shows a rate and an "At their limit: …" line; the Want section is hidden and Maximize is visible; the Goals note appears instead of the Goals checkboxes; no console or window errors.
 
 Then do the two things a seeded probe can't: switch the select to **Target rates** and confirm the Want section and Goals come back with their rows intact, and remove the block so nothing is declared and confirm the unbounded message appears **with no rate**.
 

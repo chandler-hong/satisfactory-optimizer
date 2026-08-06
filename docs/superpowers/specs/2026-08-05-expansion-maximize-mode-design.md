@@ -168,8 +168,26 @@ The headline names the bound, because an unexplained maximum is not actionable:
 
 ```
 MOST YOU CAN MAKE      15 Modular Engine/min
-bound by               Motor 30/min (your line, fully used)
+
+At their limit:
+  Motor    30/min   (fully used)
 ```
+
+**Why "at their limit" and not "bound by".** Naming *which* declared line causes the
+maximum is mathematically ill-posed, and this was established the hard way — four fix
+rounds of margin-tuning before the real diagnosis. Pass 1 of `maxSets` is entirely
+cost-blind (every variable but `__sets__` carries `[SETS] = 0`, and `RAWCOST` has no
+constraint), so where two declared lines are interchangeable feeds for the same item the
+LP has genuinely multiple optima and the solver picks a vertex arbitrarily. Demonstrated:
+two fungible supplies plus a third line as the real ceiling reports all of them, yet
+doubling *or* halving the named one leaves `sets` unchanged. No epsilon, margin, or choice
+of solve pass fixes that.
+
+What IS sound is the weaker claim, and it has a structural proof: the only non-homogeneous
+constraints in max mode are supply caps and raw caps, so a finite positive optimum must
+have one of them tight in *every* optimum. So the readout reports which lines are **fully
+consumed** — true in all cases — and does not claim causation. `bounded` keeps its full
+meaning; only the naming is demoted.
 
 With several targets it reads as the Optimizer's balanced sets — `N sets/min` plus a per-part
 breakdown. Everything below the headline (To build, machine totals, net output, supply used,

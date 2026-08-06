@@ -69,20 +69,67 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // non-monotonically — see js/engine/expansion.js's bindingItems comment).
   // Pass 1 (buildMaxSetsModel) has no such constraint at all: SETS is the
   // direct objective, not a bound relaxed by a give, so a supply that truly
-  // constrains the maximum is drawn to EXACTLY its rate here, at every scale
-  // (verified empirically: zero shortfall from weight 1 through 1e7, and
-  // independently via a rate/SETS ratio up to 1.4e3-to-1, before this was
-  // relied on for detection).
+  // constrains the maximum is drawn to its rate here, at every scale, closely
+  // enough for a plain absolute EPS (js/engine/expansion.js) to catch it as
+  // fully drawn with no margin modelling required (verified empirically:
+  // no measurable shortfall from weight 1 through 1e7, and independently via
+  // a rate/SETS ratio up to 1.4e3-to-1, before this was relied on for
+  // detection). See the round 5 correction below `supplyAtMax`'s fill loop
+  // for why "closely enough," not "exactly."
   const supplyDrawn = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
   // Same zero-fill shape as supplyDrawn, kept as an independent array (not
   // derived from it) so the two can never alias or drift into sharing state.
   const supplyAtMax = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
   const r1 = solveModel(buildMaxSetsModel(args));
   if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn, supplyAtMax };
-  for (const d of supplyAtMax) {
-    const used = r1.values[supplyVarName(d.itemId, d.kind)] || 0;
-    d.used = Math.round(used * 1e6) / 1e6;
+  // Fix round 5, Critical: an UNBOUNDED pass 1 (feasible:true, bounded:false,
+  // objective:Infinity -- reachable on the real dataset, e.g. a `have`
+  // Alien Protein row feeding a max-Stone target through a route that
+  // otherwise runs away, or the same shape via a pinned block row) still
+  // hands back a finite vertex, and jsLPSolver is free to place that vertex
+  // with every supply variable sitting exactly at its own cap -- not because
+  // that supply constrains anything, but because the simplex has no reason
+  // to move off it along the unbounded ray. Filling supplyAtMax from that
+  // vertex made every declared supply look fully drawn, which filled
+  // bindingItems, which (combined with an unbounded ray that happens to
+  // touch zero raw resources, leaving lpNetRaw empty and its `.every(...)`
+  // vacuously true) made expansion.js report bounded:true on sets:Infinity --
+  // the exact failure mode this whole fix (round 4) exists to prevent, now
+  // arriving from the opposite direction. Rounds 2 and 3 never hit this:
+  // they read `chosen` (pass 2), and pass 2's own constraint becomes
+  // `{min: NaN}` when `minSets` is Infinity, which reliably left `chosen`'s
+  // draw at 0 -- accidentally safe, for a reason that had nothing to do with
+  // correctness and stopped applying the moment detection moved to pass 1.
+  // Guarding the fill on r1.bounded leaves supplyAtMax all-zero on an
+  // unbounded pass 1 (same as the already-handled infeasible path above), so
+  // bindingItems reads every supply as un-drawn and bounded correctly comes
+  // back false. `sets` below can still read Infinity in this case (the
+  // raw-resource-as-max-target edge case flagged out of scope since round
+  // 1); bounded:false is the existing, already-relied-on signal callers use
+  // to know not to trust it, unchanged by this fix.
+  if (r1.bounded) {
+    for (const d of supplyAtMax) {
+      const used = r1.values[supplyVarName(d.itemId, d.kind)] || 0;
+      d.used = Math.round(used * 1e6) / 1e6;
+    }
   }
+  // Round 5 correction: the comment above (and expansion.js's bindingItems
+  // comment) previously claimed pass 1 draws a binding supply to EXACTLY its
+  // rate. False as stated -- there are two real error sources between pass
+  // 1's true vertex and the `used` figure read out above. First, this loop's
+  // own `Math.round(used * 1e6) / 1e6` loses up to ~4.9e-7 by itself (49% of
+  // expansion.js's EPS=1e-6 -- only 2x headroom), at every scale, just from
+  // landing on the wrong side of a rounding-grid line. Second, the solver
+  // carries its own relative floating-point error on top of that, on the
+  // order of `rate * 1.2e-16`. Summed, the two first exceed EPS around
+  // rate >= ~8.31e9. The EPS margin in bindingItems still holds today only
+  // because nothing reachable gets remotely close to that: the UI clamps a
+  // declared have/want row to MAX_RATE=1e6 (js/ui/expansion.js), and a
+  // block's own ceiling (MAX_MACHINES=9999 x a 2.5x clock cap x an upper-end
+  // recipe rate, roughly 1500/min -> ~3.75e7) sits about 220x below the
+  // crossover. This is a real, load-bearing bound, not a decorative one -- a
+  // future reader raising MAX_RATE by more than two orders of magnitude
+  // needs to re-derive this margin rather than assume EPS still clears it.
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
