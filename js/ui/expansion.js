@@ -271,6 +271,45 @@ function makeRateRow(kind, itemOpts, initial, onChange) {
 }
 
 /**
+ * One maximize target: item picker plus a relative weight (parts-per-set
+ * ratio against sibling targets), no rate box — max mode solves for the rate,
+ * it doesn't take one. `weight` is clamped through MAX_WEIGHT here, the same
+ * way makeBlockRow/makeRateRow clamp their own numeric field through
+ * MAX_MACHINES/MAX_RATE: recompute() feeds this read() output straight to
+ * both the live solve and saveState, so an unclamped value here would solve
+ * live at whatever the user typed but silently come back clamped after a
+ * reload — sanitizeState only sanitizes on load, not on save.
+ */
+function makeMaxRow(itemOpts, initial, onChange) {
+  const row = el('div', 'target-row');
+  const picker = createSearchSelect({ options: itemOpts, placeholder: 'Item…', showIcon: true });
+  picker.el.style.width = '100%';
+  row.appendChild(picker.el);
+
+  const foot = el('div', 'target-row__foot');
+  const label = el('span', 'target-row__label');
+  label.textContent = 'Weight';
+  const weightInput = numberInput({ value: initial?.weight ?? 1, min: 1, step: 1, width: '4rem' });
+  weightInput.max = String(MAX_WEIGHT); // a hint only; the read below is the real clamp
+  const removeBtn = el('button');
+  removeBtn.type = 'button';
+  removeBtn.textContent = 'Remove';
+  removeBtn.style.marginLeft = 'auto';
+  foot.append(label, weightInput, removeBtn);
+  row.appendChild(foot);
+
+  picker.onSelect(onChange);
+  weightInput.addEventListener('input', onChange);
+  if (initial?.itemId) picker.setValue(initial.itemId);
+
+  return {
+    el: row,
+    removeBtn,
+    read: () => ({ kind: 'max', itemId: picker.getValue(), weight: clampTo(MAX_WEIGHT, weightInput.value) || 1 }),
+  };
+}
+
+/**
  * A labelled group of add/remove-able rows (Blocks / Want / Have): heading,
  * hint, the row list, and an "+ Add" button. Mirrors js/ui/inputs.js's own
  * target-row convention — an array kept in sync by filtering it on remove,
@@ -396,9 +435,9 @@ function renderMessage(target, text) {
  * localStorage — and assert it returns `{ ok: false }` instead of throwing.
  * Returns `{ ok: true, plan, goalViews, shortfallRows }` on success.
  */
-export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes }) {
+export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes, mode }) {
   try {
-    const plan = planExpansion({ dataset, rows, enabledRecipeIds });
+    const plan = planExpansion({ dataset, rows, enabledRecipeIds, mode });
     const goalViews = evaluateGoals(catalog, goals, plan.netOutput, fillMinutes);
     const shortfallRows = uncoveredToRows(goalViews);
     return { ok: true, plan, goalViews, shortfallRows };
@@ -446,6 +485,20 @@ export function buildExpansion(dataset, container) {
   container.appendChild(altPicker.warningEl);
   container.appendChild(altPicker.el);
 
+  const modeSelect = el('select');
+  for (const [value, label] of [['targets', 'Target rates'], ['max', 'Maximize']]) {
+    const opt = el('option');
+    opt.value = value;
+    opt.textContent = label;
+    modeSelect.appendChild(opt);
+  }
+  modeSelect.value = saved.mode === 'max' ? 'max' : 'targets';
+  const modeRow = el('div', 'exp-mode');
+  const modeLabel = el('span', 'target-row__label');
+  modeLabel.textContent = 'Mode';
+  modeRow.append(modeLabel, modeSelect);
+  container.appendChild(modeRow);
+
   const grid = el('div', 'exp');
   container.appendChild(grid);
   const rowsPane = el('div', 'exp-rows');
@@ -460,11 +513,12 @@ export function buildExpansion(dataset, container) {
    * #inputs/#results.
    */
   function recompute() {
-    const rows = [...blockSection.readAll(), ...wantSection.readAll(), ...haveSection.readAll()];
+    const rows = [...blockSection.readAll(), ...wantSection.readAll(), ...maxSection.readAll(), ...haveSection.readAll()];
     const goals = goalsSection.getSelectedIds();
     const fillMinutes = goalsSection.getFillMinutes();
+    const mode = modeSelect.value === 'max' ? 'max' : 'targets';
     const result = computeExpansionResult({
-      dataset, rows, enabledRecipeIds: currentEnabledRecipeIds(), catalog, goals, fillMinutes,
+      dataset, rows, enabledRecipeIds: currentEnabledRecipeIds(), catalog, goals, fillMinutes, mode,
     });
     if (!result.ok) {
       // Deliberately not persisted. Saving before the compute meant a value that
@@ -477,7 +531,7 @@ export function buildExpansion(dataset, container) {
       renderMessage(resultsPane, `Failed to compute plan: ${result.error?.message ?? String(result.error)}`);
       return;
     }
-    saveState({ rows, goals, fillMinutes, alts: [...altPicker.getEnabledIds()] });
+    saveState({ rows, goals, fillMinutes, alts: [...altPicker.getEnabledIds()], mode });
     try {
       renderPlan(resultsPane, dataset, result.plan);
       renderGoals(resultsPane, result.goalViews, result.shortfallRows.length, () => addShortfallRows(result.shortfallRows));
@@ -512,12 +566,24 @@ export function buildExpansion(dataset, container) {
     (initial, onChange) => makeBlockRow(dataset, recipeOpts, recipeById, initial, onChange),
     scheduleRecompute,
   );
+  const wantWrap = el('div');
+  rowsPane.appendChild(wantWrap);
   const wantSection = buildRowSection(
-    rowsPane,
+    wantWrap,
     'Want',
     'Flat extra demand for an item, on top of whatever the blocks above consume.',
     '+ Add want',
     (initial, onChange) => makeRateRow('want', itemOpts, initial, onChange),
+    scheduleRecompute,
+  );
+  const maxWrap = el('div');
+  rowsPane.appendChild(maxWrap);
+  const maxSection = buildRowSection(
+    maxWrap,
+    'Maximize',
+    'Make as much of this as your declared lines allow. Weight sets the ratio when you pick more than one.',
+    '+ Add target',
+    (initial, onChange) => makeMaxRow(itemOpts, initial, onChange),
     scheduleRecompute,
   );
   const haveSection = buildRowSection(
@@ -530,12 +596,29 @@ export function buildExpansion(dataset, container) {
   );
   const catalog = buildGoalCatalog(dataset);
   const catalogIds = new Set(catalog.map((g) => g.id));
+  const goalsWrap = el('div');
+  rowsPane.appendChild(goalsWrap);
   const goalsSection = buildGoalsSection(
-    rowsPane,
+    goalsWrap,
     catalog,
     { goals: saved.goals.filter((id) => catalogIds.has(id)), fillMinutes: saved.fillMinutes },
     scheduleRecompute,
   );
+  const goalsNote = el('p', 'hint');
+  goalsNote.textContent = 'Goals plan a fixed milestone cost, so they apply in Target rates mode.';
+  rowsPane.appendChild(goalsNote);
+
+  // Toggle wrappers, never the rows inside them, so switching modes doesn't
+  // lose what the user typed. `have` has no wrapper: a have row is a supply
+  // floor the plan can draw on either way, so it applies in both modes.
+  function applyMode() {
+    const isMax = modeSelect.value === 'max';
+    wantWrap.hidden = isMax;
+    maxWrap.hidden = !isMax;
+    goalsWrap.hidden = isMax;
+    goalsNote.hidden = !isMax;
+  }
+  modeSelect.addEventListener('change', () => { applyMode(); scheduleRecompute(); });
 
   // Restore saved rows without firing change events; recompute() below paints
   // once at the end. An id from a since-removed recipe/item degrades to an
@@ -552,8 +635,11 @@ export function buildExpansion(dataset, container) {
       wantSection.addRow(itemIds.has(r.itemId) ? r : { ...r, itemId: null });
     } else if (r.kind === 'have') {
       haveSection.addRow(itemIds.has(r.itemId) ? r : { ...r, itemId: null });
+    } else if (r.kind === 'max') {
+      maxSection.addRow(itemIds.has(r.itemId) ? r : { ...r, itemId: null });
     }
   }
 
+  applyMode();
   recompute();
 }

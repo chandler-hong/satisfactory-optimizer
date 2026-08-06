@@ -474,7 +474,8 @@ table {
 .codex-view input[type="search"],
 .expansion-view input[type="text"],
 .expansion-view input[type="number"],
-.expansion-view input[type="search"] {
+.expansion-view input[type="search"],
+.expansion-view select {
   font: inherit;
   color: var(--ink);
   background: var(--surface);
@@ -499,7 +500,8 @@ table {
 .codex-view input[type="search"]:hover,
 .expansion-view input[type="text"]:hover,
 .expansion-view input[type="number"]:hover,
-.expansion-view input[type="search"]:hover { border-color: var(--ink-muted); }
+.expansion-view input[type="search"]:hover,
+.expansion-view select:hover { border-color: var(--ink-muted); }
 
 .app input[type="text"]:focus-visible,
 .app input[type="number"]:focus-visible,
@@ -510,7 +512,8 @@ table {
 .codex-view input[type="search"]:focus-visible,
 .expansion-view input[type="text"]:focus-visible,
 .expansion-view input[type="number"]:focus-visible,
-.expansion-view input[type="search"]:focus-visible {
+.expansion-view input[type="search"]:focus-visible,
+.expansion-view select:focus-visible {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
@@ -518,7 +521,8 @@ table {
 
 /* Selects: custom chevron (the native one is gone via appearance:none). */
 .app select,
-.power-view select {
+.power-view select,
+.expansion-view select {
   cursor: pointer;
   padding-right: 2rem;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%239aa3ad' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1.5 6 6.5 11 1.5'/></svg>");
@@ -1528,3 +1532,10 @@ button.codex-io:focus-visible {
 .exp-goal-part--uncovered { color: var(--warning); }
 
 .exp-goal-add { width: 100%; margin-top: 0.5rem; }
+
+.exp-mode {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.6rem;
+}

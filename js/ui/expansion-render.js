@@ -174,6 +174,44 @@ function renderDiagramPanel(dataset, plan) {
 }
 
 /**
+ * The maximize headline. An unexplained maximum isn't actionable, so it names
+ * what bound the answer — and when nothing did, it refuses to print a rate at
+ * all rather than showing a number the raw clamp invented.
+ */
+function renderMaximizePanel(m) {
+  const section = panel('Most you can make');
+  if (!m.bounded) {
+    const p = el('p', 'hint');
+    p.textContent = m.perPart.length === 0
+      ? 'Pick something to maximize.'
+      : `Your declared lines don't feed ${m.perPart.map((x) => x.name).join(' or ')} — there's nothing here to bound the answer. Add a block or a have row it depends on.`;
+    section.appendChild(p);
+    return section;
+  }
+  const list = el('ul', 'belt-list');
+  for (const p of m.perPart) {
+    const li = el('li');
+    li.appendChild(icon(p.slug, p.fluid ? 'fluid' : 'item', p.name));
+    const nameSpan = el('span');
+    nameSpan.textContent = p.name;
+    li.appendChild(nameSpan);
+    const rateSpan = el('span');
+    rateSpan.textContent = `${fmt1(p.rate)}${p.fluid ? ' m³' : ''}/min`;
+    li.appendChild(rateSpan);
+    list.appendChild(li);
+  }
+  section.appendChild(list);
+  const bound = el('p', 'hint');
+  // "At their limit", NOT "bound by": naming which line CAUSES the maximum is
+  // ill-posed — where two declared lines are interchangeable feeds the LP has
+  // multiple optima and picks one arbitrarily. "Fully consumed" is true in every
+  // case. See the spec's note on this; it cost four fix rounds to establish.
+  bound.textContent = `At their limit: ${m.atLimitItems.map((b) => `${b.name} ${fmt1(b.rate)}/min`).join(', ')} (fully used).`;
+  section.appendChild(bound);
+  return section;
+}
+
+/**
  * Per-goal progress for the ticked HUB milestones / Space Elevator phases, plus
  * the "push shortfalls into Want rows" action. Appended straight onto `wrap`
  * rather than clearing it first: expansion.js's recompute() always calls
@@ -271,6 +309,16 @@ export function renderPlan(wrap, dataset, plan) {
   if (hasDiagnostics(plan)) {
     if (plan.requirements && plan.requirements.hasIssues) wrap.appendChild(renderRequirements(plan.requirements));
     if (plan.shortfalls && plan.shortfalls.length > 0) wrap.appendChild(renderShortfalls(plan.shortfalls));
+  }
+  // Ahead of the hasContent gate, not after it: an unbounded max-mode plan
+  // still has non-empty buildRows/netOutputRows/beltRows (the raw clamp drove
+  // them up to a huge-but-finite stand-in), so hasContent(plan) is true even
+  // when there's nothing to actually show. Returning here on the unbounded
+  // branch keeps that fabricated build-out off the screen entirely, leaving
+  // only the refusal message — matching renderMaximizePanel's own contract.
+  if (plan.mode === 'max' && plan.maximize) {
+    wrap.appendChild(renderMaximizePanel(plan.maximize));
+    if (!plan.maximize.bounded) return;
   }
   if (!hasContent(plan)) {
     // The hint only helps someone who hasn't described anything yet; after a
