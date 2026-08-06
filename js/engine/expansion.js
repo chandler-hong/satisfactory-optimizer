@@ -90,9 +90,11 @@ export function pinnedBalance(dataset, blockRows) {
 }
 
 /**
- * Primary-output item ids the given block rows declare. Shared by
- * blockOutputExclusions and the max-mode binding readout in planExpansion, so
- * both agree on exactly what "declared" means without duplicating the walk.
+ * Primary-output item ids the given block rows declare. Used by
+ * blockOutputExclusions below to decide which recipes the max-mode solver
+ * must not use. (The max-mode binding readout in planExpansion no longer
+ * consults this directly — see the comment on the `maximize` block there for
+ * why "declared" alone is not a sound test for bindingness.)
  */
 function declaredPrimaryOutputs(dataset, blockRows) {
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
@@ -112,11 +114,26 @@ function declaredPrimaryOutputs(dataset, blockRows) {
  * ("my Motor line makes 30/min"), so letting the solver add more would make the
  * maximum unbounded — raws are free here, so it would just build more from ore.
  *
- * Scoped to outputs[0] deliberately. A block's byproducts stay available: a
- * Scrap line also outputs Water, and excluding every water-producing recipe in
- * the game because one block mentions it would wreck the plan. Have rows are
- * likewise untouched — "I can draw 300/min off my bus" is a floor, not a claim
- * that no more can exist.
+ * Scoped to outputs[0] deliberately when DECLARING what counts as capped. A
+ * block's byproducts stay available: a Scrap line also outputs Water, and
+ * excluding every water-producing recipe in the game because one block
+ * mentions it would wreck the plan. Have rows are likewise untouched — "I can
+ * draw 300/min off my bus" is a floor, not a claim that no more can exist.
+ *
+ * But the MATCH below is deliberately asymmetric with that: a candidate
+ * recipe is excluded if ANY of its outputs — not just its own outputs[0] — is
+ * in `declared`. So a recipe that emits a declared item only as a byproduct
+ * loses its own unrelated primary output too, as collateral damage. That is
+ * kept on purpose, not tightened to outputs[0] on both sides: a recipe runs
+ * as one atomic unit, so keeping it enabled to preserve its primary would
+ * also keep its declared-item byproduct flowing — reopening the exact
+ * free-raws-into-capped-item hole this mechanism exists to close, just via a
+ * byproduct instead of a primary. There is no way to disable one output of a
+ * recipe while keeping another, so the whole recipe goes. This can zero out a
+ * target that has no other route to it at all (feasible: true, sets: 0) —
+ * see the "silent zero" test below; the maximize readout's `bounded` still
+ * comes out false there, since nothing about that failure makes any supply
+ * look fully drawn.
  *
  * This never removes the block itself: blocks are applied through pinnedBalance,
  * never through enabledRecipeIds.
@@ -493,26 +510,46 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     missing: analysis.perTarget.filter((t) => t.status === 'missing').map(shapeTarget),
   };
 
-  // Binding = this declared supply was consumed to exhaustion. Computed here
-  // from solved.supplyDrawn rather than from supplyUsage below, which is
-  // filtered to kind==='have' and whose `capped` flag additionally requires
-  // builtItems.has(itemId) — never true in max mode, since the item's own
-  // recipes are excluded by design rather than LP-built.
+  // Binding = this declared supply was consumed to exhaustion AND the item has
+  // no other way to be produced in this plan. Both halves are load-bearing;
+  // neither alone is a sound test.
   //
-  // Restricted to declaredPrimaries (this plan's declared block outputs), not
-  // every supply regardless of kind: a have row's own recipe stays enabled (see
-  // blockOutputExclusions above — only a block's primary output is excluded),
-  // so the min-raw second pass is always free to substitute the near-zero-cost
-  // have draw for real production up to its cap. That draws it to `used === rate`
-  // as a pure cost-minimization artifact, not because the have row is the true
-  // bottleneck — the same is true of a block's own BYPRODUCT, which lands in
-  // `supplies` as 'pinned' but, like a have row, was never excluded either.
+  // "Fully drawn" alone is not enough. maxSets' first pass (maximize SETS,
+  // ignoring cost) draws every usable supply to its cap whenever doing so can
+  // only help the objective, regardless of whether that supply actually
+  // constrains the final answer. A have row's own recipe stays enabled (only
+  // a block's PRIMARY output is excluded — see blockOutputExclusions above),
+  // so the solver can always draw a have row to `used === rate` as a pure
+  // side effect, not because it is the true bottleneck. So this is gated on
+  // the item having NO remaining producer in solveEnabled, the post-exclusion
+  // recipe set actually handed to the solver:
+  //   - a block's declared primary always clears this gate (its producers are
+  //     excluded by construction, see blockOutputExclusions above);
+  //   - a have row's item never does (its recipe is never excluded);
+  //   - a block's byproduct clears it only when its producer got excluded as
+  //     collateral (blockOutputExclusions' any-output asymmetry, documented
+  //     there) and nothing else makes the item — an orphaned byproduct that
+  //     is now a genuine ceiling, not a false positive.
+  //
+  // That gate still isn't sufficient by itself. When the max target has a
+  // SECOND route that bypasses the declared item entirely (e.g. an alternate
+  // recipe enabled elsewhere in the plan), pass 1 still fully drains the
+  // declared supply — it clears the gate above and looks binding — while the
+  // real answer independently runs away on the bypass route to the raw-
+  // resource clamp (planExpansion sets every raw cap to Infinity above;
+  // rawConstraints() clamps a non-finite cap to 1e9, so an unbounded answer
+  // surfaces as a huge finite number near that clamp, not as infeasibility).
+  // rawUsage (computed above) catches this independently: a genuinely bounded
+  // plan never gets near 1e9 on any raw. Do NOT reach for solved.bindingResources
+  // instead — planExpansion's raw caps are all Infinity, so that comparison is
+  // always against Infinity and bindingResources is therefore always empty.
   const maximize = !isMax ? undefined : (() => {
-    const declaredPrimaries = declaredPrimaryOutputs(dataset, blockRows);
     const drawn = solved.supplyDrawn || [];
+    const hasEnabledProducer = (itemId) =>
+      dataset.recipes.some((r) => solveEnabled.has(r.id) && (r.outputs || []).some((o) => o.itemId === itemId));
     const bindingItems = supplies
       .map((s, i) => ({ s, used: drawn[i]?.used ?? 0 }))
-      .filter(({ s, used }) => declaredPrimaries.has(s.itemId) && s.rate > EPS && used >= s.rate - EPS)
+      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - EPS && !hasEnabledProducer(s.itemId))
       .map(({ s }) => ({ itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6(s.rate) }));
     return {
       sets: round6(solved.sets || 0),
@@ -525,7 +562,19 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
         rate: round6(p.rate),
       })),
       bindingItems,
-      bounded: bindingItems.length > 0,
+      // Margin below the 1e9 clamp: NOT tightened to `1e9 - 1`. buildMinRawModel /
+      // buildMinRawForSetsModel (lp-builder.js) pin pass 2's SETS at
+      // `minTarget - Math.abs(minTarget) * 1e-9 - 1e-9` — a relative 1e-9 give
+      // versus pass 1's max. At clamp-scale SETS (tens of millions+, exactly the
+      // regime this check exists to catch), that relative slack becomes an
+      // absolute raw-usage gap of the same order as a 1-unit margin, so a
+      // bypass/unbounded plan can land a hair under `1e9 - 1` and read as bounded
+      // — reproduced empirically, not hypothetical. Every genuinely bounded case
+      // observed sits at 1e0-1e3; every clamp-derived case observed sits at
+      // 1e7-1e9+, nine-plus orders of magnitude apart. 1e6 sits in that gap with
+      // wide margin on both sides and is insensitive to the solver's per-pass
+      // tolerance.
+      bounded: bindingItems.length > 0 && [...rawUsage.values()].every((v) => v < 1e9 - 1e6),
     };
   })();
 

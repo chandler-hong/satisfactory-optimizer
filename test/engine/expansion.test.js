@@ -838,6 +838,130 @@ test('planExpansion (max): balanced sets weight the targets against each other',
 });
 
 /**
+ * Fix round 1, Critical. castScrew makes screw straight from ingot, bypassing
+ * the declared rod line entirely (screw normally needs rod -> screw). maxSets'
+ * first pass still fully drains rod as a side effect of maximizing SETS (rod is
+ * cheap and helps, so pass 1 takes all of it) even though rip's real ceiling now
+ * comes from the bypass route instead: rip needs plate + screw, plate is built
+ * freely from uncapped ore, and now so is screw via castScrew, so rip is
+ * genuinely unbounded and runs away to the raw clamp. "rod fully drawn" alone
+ * must not be read as "rod bounds the answer".
+ */
+test('planExpansion (max): a bypass route around a declared line is unbounded, not falsely bound', () => {
+  const castScrew = { id: 'castScrew', name: 'castScrew', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ingot', perMin: 10 }], outputs: [{ itemId: 'screw', perMin: 20 }] };
+  const bypassDataset = { ...ironChain, recipes: [...ironChain.recipes, castScrew] };
+  const bypassEnabled = new Set([...ALL_IRON_RECIPES, 'castScrew']);
+  const p = planExpansion({
+    dataset: bypassDataset,
+    rows: [
+      { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'rip', weight: 1 },
+    ],
+    enabledRecipeIds: bypassEnabled,
+    mode: 'max',
+  });
+  assert.ok(p.maximize.sets > 1e6,
+    `expected a clamp-scale runaway answer (castScrew makes rip's screw need free), got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, false,
+    'rod being fully drawn does not mean rod bounds rip: castScrew gives rip a second, unbounded route');
+});
+
+/**
+ * Fix round 1, Important 2. dual makes p (primary) and b (byproduct) from ore;
+ * useB turns b into t. Declaring the dual block excludes dual — it is b's only
+ * producer too, via blockOutputExclusions' any-output match — so once dual is
+ * excluded, b has no remaining producer at all. b is then a genuine ceiling on
+ * t, not a false positive: unlike a plain fully-drawn check, this must survive
+ * b never being a block's own declared PRIMARY output.
+ */
+test('planExpansion (max): an orphaned byproduct with no other producer is a genuine ceiling', () => {
+  const dual = { id: 'dual', name: 'dual', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 10 }], outputs: [{ itemId: 'p', perMin: 5 }, { itemId: 'b', perMin: 3 }] };
+  const useB = { id: 'useB', name: 'useB', buildingId: 'b', alternate: false, inputs: [{ itemId: 'b', perMin: 1 }], outputs: [{ itemId: 't', perMin: 1 }] };
+  const orphanDataset = { ...ironChain, recipes: [...ironChain.recipes, dual, useB] };
+  const orphanEnabled = new Set([...ALL_IRON_RECIPES, 'dual', 'useB']);
+  const p = planExpansion({
+    dataset: orphanDataset,
+    rows: [
+      { kind: 'block', recipeId: 'dual', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 't', weight: 1 },
+    ],
+    enabledRecipeIds: orphanEnabled,
+    mode: 'max',
+  });
+  assert.equal(p.maximize.bounded, true, 'b has no remaining producer once dual is excluded, so it is a real ceiling');
+  assert.ok(Math.abs(p.maximize.sets - 3) < 1e-6, `expected 3 (dual's b output at 1 machine), got ${p.maximize.sets}`);
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['b']);
+});
+
+test('planExpansion (max): the same byproduct is not a ceiling once an independent producer exists', () => {
+  // Same shape as above, plus bMaker2 makes b directly from ore with no
+  // connection to the declared dual block — b now has a real remaining
+  // producer, so the previous ceiling disappears and t is unbounded again.
+  const dual = { id: 'dual', name: 'dual', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 10 }], outputs: [{ itemId: 'p', perMin: 5 }, { itemId: 'b', perMin: 3 }] };
+  const useB = { id: 'useB', name: 'useB', buildingId: 'b', alternate: false, inputs: [{ itemId: 'b', perMin: 1 }], outputs: [{ itemId: 't', perMin: 1 }] };
+  const bMaker2 = { id: 'bMaker2', name: 'bMaker2', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 1 }], outputs: [{ itemId: 'b', perMin: 1 }] };
+  const dataset2 = { ...ironChain, recipes: [...ironChain.recipes, dual, useB, bMaker2] };
+  const enabled2 = new Set([...ALL_IRON_RECIPES, 'dual', 'useB', 'bMaker2']);
+  const p = planExpansion({
+    dataset: dataset2,
+    rows: [
+      { kind: 'block', recipeId: 'dual', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 't', weight: 1 },
+    ],
+    enabledRecipeIds: enabled2,
+    mode: 'max',
+  });
+  assert.equal(p.maximize.bounded, false, 'b now has an independent producer, so nothing bounds t');
+  assert.deepEqual(p.maximize.bindingItems, []);
+});
+
+/**
+ * Fix round 1, Important 3 (pinning test — behavior was already correct).
+ * horAlt is hor's only route; plasticR makes plastic AND hor together.
+ * Declaring horAlt excludes every recipe that outputs hor ANYWHERE, including
+ * plasticR (the asymmetric any-output match, see blockOutputExclusions above)
+ * — so plastic loses its only recipe as collateral damage and the target is
+ * stuck at 0, not merely capped. Nothing here looks "fully drawn", so bounded
+ * must stay false rather than reading the zero as some kind of bound.
+ */
+test('planExpansion (max): excluding a recipe as collateral can zero out the target entirely', () => {
+  const horAlt = { id: 'horAlt', name: 'horAlt', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 2 }], outputs: [{ itemId: 'hor', perMin: 1 }] };
+  const plasticR = { id: 'plasticR', name: 'plasticR', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 4 }], outputs: [{ itemId: 'plastic', perMin: 2 }, { itemId: 'hor', perMin: 1 }] };
+  const silentDataset = { ...ironChain, recipes: [...ironChain.recipes, horAlt, plasticR] };
+  const silentEnabled = new Set([...ALL_IRON_RECIPES, 'horAlt', 'plasticR']);
+  const p = planExpansion({
+    dataset: silentDataset,
+    rows: [
+      { kind: 'block', recipeId: 'horAlt', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plastic', weight: 1 },
+    ],
+    enabledRecipeIds: silentEnabled,
+    mode: 'max',
+  });
+  assert.equal(p.feasible, true);
+  assert.equal(p.maximize.sets, 0, 'plasticR was excluded as collateral, so plastic has no route left at all');
+  assert.equal(p.maximize.bounded, false, 'a zeroed-out target is not "bounded" in any meaningful sense');
+});
+
+/**
+ * Fix round 1, Important 4. screw at 20 machines makes 800/min, far more than
+ * rotor can use (100 screw per 4 rotor) — screw is drawn well below its
+ * declared rate and must not be reported as binding. rod at 1 machine makes
+ * 15/min and IS the true bottleneck (20 rod per 4 rotor too): only rod should
+ * be fully drawn and only rod should be named.
+ */
+test('planExpansion (max): a partially-drawn declared line is not binding, only the fully-drawn one is', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+    { kind: 'block', recipeId: 'screw', machines: 20, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ]);
+  assert.equal(p.maximize.bounded, true);
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['rod'],
+    'screw is only 75 of its declared 800/min here, nowhere near its cap, so it must not appear');
+});
+
+/**
  * Tests blockOutputExclusions directly rather than through a plan. Going through
  * planExpansion here would need a disjunctive assertion ("bMaker was built OR the
  * answer was unbounded"), which passes trivially via the second clause and proves
@@ -877,6 +1001,29 @@ test('blockOutputExclusions: a stale or zero-machine block row excludes nothing'
 test('planExpansion: mode defaults to targets, so every existing caller is unaffected', () => {
   const withoutMode = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }]);
   const withMode = plan([{ kind: 'block', recipeId: 'rip', machines: 2, clock: 1 }], { mode: 'targets' });
+  assert.equal(withoutMode.mode, 'targets', 'the default mode string itself must be "targets"');
   assert.equal(withoutMode.tiles.machines, withMode.tiles.machines);
   assert.equal(withoutMode.maximize, undefined, 'targets mode carries no maximize readout');
+});
+
+/**
+ * Fix round 1, Important 5. The test above only ever calls plan() with a block
+ * row and no max row, so isMax (mode === 'max' && maxTargets.length > 0) is
+ * false there no matter what the mode default is — it cannot by itself catch a
+ * flipped default. This uses plan() (not planMax(), which hardcodes mode:
+ * 'max') with a max-kind row present and mode omitted, so a flipped default
+ * would both report mode: 'max' AND turn on a real maximize readout.
+ */
+test('planExpansion: a max row is inert unless mode is explicitly "max"', () => {
+  const rows = [
+    { kind: 'block', recipeId: 'rip', machines: 2, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ];
+  const withoutMode = plan(rows);
+  const withTargetsMode = plan(rows, { mode: 'targets' });
+  assert.equal(withoutMode.mode, 'targets', 'omitting mode must default to targets, not max');
+  assert.equal(withoutMode.maximize, undefined, 'a stray max row must not turn on the maximize readout by itself');
+  assert.equal(withTargetsMode.maximize, undefined);
+  assert.equal(withoutMode.tiles.machines, withTargetsMode.tiles.machines,
+    'explicit targets mode and the default must solve identically');
 });
