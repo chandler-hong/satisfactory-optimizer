@@ -960,6 +960,33 @@ test('planExpansion (max): an unbounded plan that fully drains a have row first 
 });
 
 /**
+ * Fix round 5, also: a `have` row and a `pinned` block row can legitimately
+ * share one itemId. Once the rod block pins rod's only producer (the `rod`
+ * recipe itself is excluded as the block's own primary output), rod has
+ * exactly two sources left — the 15/min pinned surplus and the 25/min have
+ * row — and no third route, so every extra unit from either pool buys more
+ * screw: the true maximum drains both to exactly zero remaining, non-
+ * arbitrarily (unlike the fungible-tie case elsewhere in this file). Before
+ * the round-5 dedupe, the two rows survived the itemId filter as separate
+ * entries, so rod appeared in atLimitItems twice, each carrying only its own
+ * row's rate instead of the combined 40/min ceiling.
+ */
+test('planExpansion (max): a have row and a pinned block row on the same item dedupe into one entry', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+    { kind: 'have', itemId: 'rod', rate: 25 },
+    { kind: 'max', itemId: 'screw', weight: 1 },
+  ]);
+  assert.equal(p.maximize.bounded, true);
+  assert.ok(Math.abs(p.maximize.sets - 160) < 1e-6, `expected 160 (40 rod x 4 screw/rod), got ${p.maximize.sets}`);
+  assert.equal(p.maximize.atLimitItems.length, 1,
+    'one shared itemId must dedupe into one entry, not one per row');
+  assert.equal(p.maximize.atLimitItems[0].itemId, 'rod');
+  assert.ok(Math.abs(p.maximize.atLimitItems[0].rate - 40) < 1e-6,
+    'the combined rate (15 pinned + 25 have) is the real ceiling, not either row alone');
+});
+
+/**
  * Fix round 1, Important 3 (pinning test — behavior was already correct).
  * horAlt is hor's only route; plasticR makes plastic AND hor together.
  * Declaring horAlt excludes every recipe that outputs hor ANYWHERE, including
