@@ -654,7 +654,7 @@ and include `mode` in the returned object.
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `npm test`
-Expected: **243 pass, fail 0**. The existing `sanitizeState: null / garbage falls back to defaults` test compares against `DEFAULT_STATE`, so adding `mode` there keeps it passing — if it fails, you added `mode` to the return but not to `DEFAULT_STATE`.
+Expected: **268 pass, fail 0**. The existing `sanitizeState: null / garbage falls back to defaults` test compares against `DEFAULT_STATE`, so adding `mode` there keeps it passing — if it fails, you added `mode` to the return but not to `DEFAULT_STATE`.
 
 - [ ] **Step 5: Commit**
 
@@ -888,7 +888,7 @@ Delete `_probe.html`, kill the server, and confirm `git status --short` is clean
 
 - [ ] **Step 6: Run the suite and commit**
 
-Run: `npm test` — expected **243 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **268 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css
