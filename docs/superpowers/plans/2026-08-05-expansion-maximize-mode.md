@@ -888,7 +888,7 @@ Delete `_probe.html`, kill the server, and confirm `git status --short` is clean
 
 - [ ] **Step 6: Run the suite and commit**
 
-Run: `npm test` — expected **268 pass, fail 0**, unchanged from Task 4.
+Run: `npm test` — expected **269 pass, fail 0**, unchanged from Task 4.
 
 ```bash
 git add js/ui/expansion.js js/ui/expansion-render.js css/styles.css
