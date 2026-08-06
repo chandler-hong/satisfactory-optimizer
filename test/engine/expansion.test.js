@@ -1269,3 +1269,226 @@ test('planExpansion (max): bounded stays true just inside the relative RAW_CLAMP
     'ore usage lands just inside the relative RAW_CLAMP margin, so this must not read as hitting the clamp');
   assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['part']);
 });
+
+/**
+ * Fix round 4, main fix. Rounds 1, 2, and 4 (the guard breaking a fourth
+ * time) are all one bug: bindingItems used to test "was this declared
+ * supply fully drawn" against solved.supplyDrawn, which tracks pass 2
+ * (buildMinRawForSetsModel) -- and pass 2 pins SETS via a give with both a
+ * relative AND a flat term (`minSets - Math.abs(minSets) * 1e-9 - 1e-9`), so
+ * its own draw on a genuinely binding supply can fall short by more than any
+ * margin tuned off the rate alone once sets is small enough that the flat
+ * term dominates.
+ *
+ * This is the coordinator's own toy case, reproduced as a wholly fresh
+ * throwaway dataset (not derived from ironChain, matching the report
+ * exactly): have catalyst 1, max widget, one recipe catalyst(1) ->
+ * widget(1). At weight 1000 the old code still read bounded:true; at weight
+ * 1001 sets drops to 0.000999 and pass 2's own draw on catalyst falls short
+ * by ~2e-6 -- past the old Math.max(EPS, rate*1e-6) margin (rate=1, so the
+ * margin was ~1e-6) -- which silently dropped catalyst out of bindingItems
+ * and flipped bounded to false on a correct, fully-bound answer ("the silent
+ * flip"). The fix reads bindingness off pass 1 (buildMaxSetsModel) instead,
+ * which has no give at all, so a truly binding supply is drawn to exactly
+ * its rate there regardless of scale.
+ */
+test('planExpansion (max): weight 1001 no longer silently flips bounded to false', () => {
+  const dataset = {
+    rawResourceIds: new Set(),
+    recipes: [{ id: 'r', name: 'r', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] }],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['catalyst', { id: 'catalyst', name: 'Catalyst', slug: 'catalyst' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate: 1 },
+      { kind: 'max', itemId: 'widget', weight: 1001 },
+    ],
+    enabledRecipeIds: new Set(['r']),
+    mode: 'max',
+  });
+  assert.ok(Math.abs(p.maximize.sets - 0.000999) < 1e-9, `expected sets ~0.000999, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, true, 'catalyst is fully drawn at weight 1001 -- must not silently flip to false');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['catalyst']);
+});
+
+/**
+ * Fix round 4, main fix -- second repro, reachable with no weight field at
+ * all (weight is unvalidated user input, but this shows the bug does not
+ * even need it). A pinned block at 1 machine/1% clock (40/min base rate ->
+ * 0.4 screw/min) feeding a target needing 1400 screw per widget lands sets
+ * at 0.4/1400 = 0.000286, matching the coordinator's own cited figure. Same
+ * failure mode as the weight-1001 case above: small sets, large
+ * rate/sets ratio, pass 2's flat give term dominates.
+ */
+test('planExpansion (max): a 1%-clock block feeding a 1400-per-unit target reads bounded', () => {
+  const dataset = {
+    rawResourceIds: new Set(),
+    recipes: [
+      { id: 'screwRig', name: 'screwRig', buildingId: 'b', alternate: false, inputs: [], outputs: [{ itemId: 'screw', perMin: 40 }] },
+      { id: 'widgetMaker', name: 'widgetMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'screw', perMin: 1400 }], outputs: [{ itemId: 'widget', perMin: 1 }] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['screw', { id: 'screw', name: 'Screw', slug: 'screw' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'block', recipeId: 'screwRig', machines: 1, clock: 0.01 },
+      { kind: 'max', itemId: 'widget', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['screwRig', 'widgetMaker']),
+    mode: 'max',
+  });
+  // p.maximize.sets is round6'd by expansion.js (`sets: round6(solved.sets || 0)`),
+  // and 0.4 / 1400 = 0.00028571428571... does not land on a 6-decimal boundary,
+  // so compare against the same rounding rather than the raw fraction.
+  const expectedSets = Math.round((0.4 / 1400) * 1e6) / 1e6;
+  assert.ok(Math.abs(p.maximize.sets - expectedSets) < 1e-9, `expected sets ~${expectedSets}, got ${p.maximize.sets}`);
+  assert.equal(p.maximize.bounded, true, 'the pinned screw block is fully drawn -- must read bounded, not silently unbounded');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['screw']);
+});
+
+/**
+ * Fix round 4, finding (a). The round-3-deferred concern was that "whatever
+ * supply makes SETS finite must itself be SETS-scaled and so safely inside
+ * its own margin" -- true only while rate/SETS stays under ~1000, and every
+ * round-3 probe stayed in that regime. Ratios above 1000 are routine (any
+ * deep target, or any weight above 1000), so this pins a case at a
+ * rate/SETS ratio comfortably above 1e4: weight 100000 on the same
+ * catalyst/widget toy puts sets at 1e-5, so rate(=1)/sets = 1e5.
+ */
+test('planExpansion (max): stays bounded at a rate/SETS ratio above 1e4', () => {
+  const dataset = {
+    rawResourceIds: new Set(),
+    recipes: [{ id: 'r', name: 'r', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] }],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['catalyst', { id: 'catalyst', name: 'Catalyst', slug: 'catalyst' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate: 1 },
+      { kind: 'max', itemId: 'widget', weight: 100000 },
+    ],
+    enabledRecipeIds: new Set(['r']),
+    mode: 'max',
+  });
+  const ratio = 1 / p.maximize.sets;
+  assert.ok(ratio > 1e4, `test setup check: expected ratio above 1e4, got ${ratio}`);
+  assert.equal(p.maximize.bounded, true, 'must stay bounded well past the regime round 3 only probed inside');
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId), ['catalyst']);
+});
+
+/**
+ * Fix round 4, finding (b). supplyUsage's `capped` widened its exhaustion
+ * margin unconditionally (fix round 3, smaller 1) even though the comment
+ * directly above supplyUsage's construction already argues targets mode
+ * does not need it -- the target-rates constraint is a hard {min: d} with
+ * no give at all, so any margin wider than solver noise is unearned there.
+ *
+ * sideJob is forced to run at rate 25 by the independent `gizmo` target,
+ * and as a joint product also makes 2 catalyst/min per gizmo/min "for
+ * free" (already paid for by rawA, so the LP always prefers it over the
+ * have-supply's tiny nonzero cost) -- 50 catalyst/min, before the
+ * widgetMaker chain touches the have-row at all. want widget at 1e8 then
+ * draws the remaining 99999950 from the have-catalyst-1e8 row, leaving
+ * exactly 50/min genuinely spare. builtItems includes catalyst (sideJob
+ * outputs it), so this isolates the margin itself: old unconditional
+ * relative margin (rate*1e-6 = 100) covers that 50-unit shortfall and reads
+ * capped:true; flat EPS correctly reads capped:false.
+ */
+test('planExpansion (targets): capped reads false for a supply with genuine slack', () => {
+  const dataset = {
+    rawResourceIds: new Set(['rawA']),
+    recipes: [
+      { id: 'sideJob', name: 'sideJob', buildingId: 'b', alternate: false, inputs: [{ itemId: 'rawA', perMin: 1 }], outputs: [{ itemId: 'gizmo', perMin: 1 }, { itemId: 'catalyst', perMin: 2 }] },
+      { id: 'widgetMaker', name: 'widgetMaker', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['rawA', { id: 'rawA', name: 'RawA', slug: 'rawa' }],
+      ['gizmo', { id: 'gizmo', name: 'Gizmo', slug: 'gizmo' }],
+      ['catalyst', { id: 'catalyst', name: 'Catalyst', slug: 'catalyst' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate: 1e8 },
+      { kind: 'want', itemId: 'gizmo', rate: 25 },
+      { kind: 'want', itemId: 'widget', rate: 1e8 },
+    ],
+    enabledRecipeIds: new Set(['sideJob', 'widgetMaker']),
+    mode: 'targets',
+  });
+  const su = p.supplyUsage.find((s) => s.itemId === 'catalyst');
+  assert.ok(Math.abs(su.used - 99999950) < 1e-6, `expected 99999950 used (50 spare), got ${su.used}`);
+  assert.equal(su.capped, false, 'catalyst has 50/min genuinely spare out of 1e8 -- must not read capped');
+});
+
+/**
+ * Not a mutation-discriminating test (checked: it passes against both the
+ * old and the new bindingItems code -- see the round 4 report's "Concerns"
+ * section for why: both supplies here are strictly required to reach pass
+ * 1's true maximum, so there is no cost-based fungibility for pass 2 to
+ * arbitrate between them, and pass 1 itself has no cost term at all. Kept
+ * anyway as a standing regression guard for the scale-disparity shape
+ * itself: two have supplies (catalyst, rate 1; bulk, rate N) both feed
+ * screw 1:1 via separate recipes, screw feeds widget 1:1, demand is
+ * unconstrained (max mode) -- the LP genuinely wants both fully drawn no
+ * matter how large N gets relative to catalyst, and both must stay in
+ * bindingItems. Confirmed directly through N = 1e9, nine orders past round
+ * 3's own reproduction scale; encoding N = 1e7 here.
+ *
+ * This does NOT confirm or deny round 3's deferred concern (bindingItems'
+ * old margin, tuned on each supply's own rate, could under-report a
+ * small-rate supply when it is COST-FUNGIBLE with a much-larger one and
+ * pass 2's give-driven cost-minimization -- not pass 1 -- decides which side
+ * absorbs the relaxation). That mechanism needs an asymmetric, genuinely
+ * fungible alternate route, which this construction does not have; see the
+ * report for the reasoning on why round 4 plausibly closes it anyway (pass 1
+ * never does cost-based substitution, so whatever tie-break ambiguity
+ * existed in pass 2 cannot reach detection anymore) without an empirical
+ * reproduction of round 3's exact fungible-tie shape.
+ */
+test('planExpansion (max): a tiny-rate supply stays binding even tied with a supply nine orders larger', () => {
+  const dataset = {
+    rawResourceIds: new Set(),
+    recipes: [
+      { id: 'r1', name: 'r1', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'screw', perMin: 1 }] },
+      { id: 'r2', name: 'r2', buildingId: 'b', alternate: false, inputs: [{ itemId: 'bulk', perMin: 1 }], outputs: [{ itemId: 'screw', perMin: 1 }] },
+      { id: 'r3', name: 'r3', buildingId: 'b', alternate: false, inputs: [{ itemId: 'screw', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['catalyst', { id: 'catalyst', name: 'Catalyst', slug: 'catalyst' }],
+      ['bulk', { id: 'bulk', name: 'Bulk', slug: 'bulk' }],
+      ['screw', { id: 'screw', name: 'Screw', slug: 'screw' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate: 1 },
+      { kind: 'have', itemId: 'bulk', rate: 1e7 },
+      { kind: 'max', itemId: 'widget', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['r1', 'r2', 'r3']),
+    mode: 'max',
+  });
+  assert.equal(p.maximize.bounded, true);
+  assert.deepEqual(p.maximize.bindingItems.map((x) => x.itemId).sort(), ['bulk', 'catalyst']);
+});

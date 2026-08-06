@@ -445,27 +445,43 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // supplyUsage holds only the declared (have-kind) row, so leaving the
   // pinned entry in breaks 3 of them.
   //
-  // Fix round 3, smaller 1: `capped`'s own margin needed the same relative
-  // widening bindingItems got in round 2, A (see that comment below). This
-  // block is built from solved.supplyDrawn unconditionally, before the mode
-  // branch, so in max mode it reads pass 2's own give-reduced draw against a
-  // flat EPS and can read `capped: false` on a have row genuinely exhausted
-  // to within pass 2's relative give (reproduced: a have row read a ~5e-6
-  // shortfall once its cheapest alternate route became cost-degenerate with
-  // the have row's own SUPPLY_COST — past flat EPS but comfortably inside a
-  // relative margin). The target-rates path (mode: 'targets') does not need
-  // this: its target constraint is a hard {min: d} with no give, so the only
-  // shortfall source there is optimize.js's absolute rounding (bounded by
-  // 5e-7), which flat EPS already covers 2x at any magnitude.
+  // Fix round 3, smaller 1 (superseded by round 4, see below): `capped`'s own
+  // margin needed the same relative widening bindingItems got in round 2, A.
+  // This block is built from solved.supplyDrawn unconditionally, before the
+  // mode branch, so in max mode it read pass 2's own give-reduced draw
+  // against a flat EPS and could read `capped: false` on a have row
+  // genuinely exhausted to within pass 2's relative give.
+  //
+  // Fix round 4, (b): that widening leaked into the targets path, which this
+  // block's own comment (just above, unchanged) already argued does not
+  // need it — the target-rates constraint is a hard {min: d} with no give at
+  // all, so a have row genuinely NOT exhausted could read `capped: true`
+  // once its shortfall-from-rate landed inside the widened-but-unneeded
+  // relative margin (reproduced: `have` catalyst 1e8 with 50/min genuinely
+  // spare read capped:true, where flat EPS correctly said false). Gated on
+  // isMax (computed above) so targets mode goes back to the flat EPS its own
+  // comment describes.
+  //
+  // In max mode, going further than a literal isMax-gate: `used` (chosen,
+  // pass 2's give-perturbed draw) is exactly the quantity round 4 stopped
+  // trusting for bindingItems below, for exactly the same reason — a margin
+  // tuned off `s.rate` alone cannot track buildMinRawForSetsModel's flat give
+  // term, which dominates at small sets/large rate-to-sets ratios regardless
+  // of which call site reads the number (see the round-4 comment on
+  // `maximize` below). So the exhaustion test in max mode reads
+  // solved.supplyAtMax (pass 1's own, give-free draw) instead of `chosen`'s,
+  // with the same flat EPS the targets path uses — no margin to widen at
+  // all, in either mode.
   const supplyUsage = supplies
     .map((s, i) => {
       const used = solved.supplyDrawn[i]?.used ?? 0;
+      const exhaustedAt = isMax ? (solved.supplyAtMax?.[i]?.used ?? 0) : used;
       return {
         itemId: s.itemId,
         kind: s.kind,
         rate: round6(s.rate),
         used: round6(used),
-        capped: used >= s.rate - Math.max(EPS, s.rate * 1e-6) && builtItems.has(s.itemId),
+        capped: exhaustedAt >= s.rate - EPS && builtItems.has(s.itemId),
       };
     })
     .filter((s) => s.kind === 'have');
@@ -580,7 +596,7 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // Infinity, so that comparison is always against Infinity and
   // bindingResources is therefore always empty.
   const maximize = !isMax ? undefined : (() => {
-    const drawn = solved.supplyDrawn || [];
+    const atMax = solved.supplyAtMax || [];
     // Fix round 3, Important: hasEnabledProducer must ask "can this item
     // actually be produced" (reachable from raw resources through enabled
     // recipes), not "does some enabled recipe syntactically list it as an
@@ -616,20 +632,54 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     // tie-break.
     const producible = producibleClosure(dataset, solveEnabled, dataset.rawResourceIds).producible;
     const hasEnabledProducer = (itemId) => producible.has(itemId);
-    // Fix round 2, A: the "fully drawn" margin must be relative, not the flat
-    // EPS (1e-6) this started as. buildMinRawForSetsModel's pass 2 (lp-builder.js)
-    // pins SETS at `minSets - Math.abs(minSets) * 1e-9 - 1e-9` — a give that
-    // scales with the declared rate, not a fixed absolute amount — so a supply
-    // drawn to exhaustion can fall short of `s.rate` by more than a flat 1e-6
-    // once the rate clears about 1000/min (EPS / 1e-9). Below that break point
-    // the flat EPS still covers it; Math.max keeps this check exact there too.
-    // Reproduced: a declared screw block read as bounded with the right
-    // binding item at 1000/min and below, then silently flipped to
-    // bounded:false with no binding item at 2000/min and above, despite the
-    // reported sets being correct at every scale.
+    // Fix round 2, A (superseded by round 4): the "fully drawn" margin was
+    // widened from flat EPS to Math.max(EPS, s.rate * 1e-6), reasoning that
+    // buildMinRawForSetsModel's pass 2 give (lp-builder.js) scales with the
+    // declared rate. That was only half the give: pass 2 pins SETS at
+    // `minSets - Math.abs(minSets) * 1e-9 - 1e-9` — a RELATIVE term AND a
+    // FLAT 1e-9 term. In supply units the freed draw is
+    // `rate*1e-9 + rate*1e-9/sets`. Round 2's relative margin covered the
+    // first term with 1000x headroom but never tracked the second at all, so
+    // below roughly sets=1e-3 the flat term dominates, blows past any margin
+    // tuned off `rate` alone, and is non-monotone in sets — there is no
+    // floor a reader could reason about. Reproduced (fixed rate=1 supply):
+    // shortfall against `chosen` went 1e-6 (sets~1e-3) -> 2e-6 -> 1e-5 as
+    // sets kept shrinking, silently emptying bindingItems and collapsing
+    // `bounded` to false on a correct answer. A max row's weight is
+    // unvalidated user input (js/ui/inputs.js) with no upper bound, so this
+    // is a keystroke away (weight 1000 -> bounded:true, weight 1001 ->
+    // bounded:false, same recipe, same supply); it is also reachable with no
+    // weight field at all, e.g. a low-clock declared block feeding a target
+    // with a large per-unit requirement gives the same small-sets shape.
+    // This was also the mechanism behind the multi-scale concern flagged
+    // (not fixed) after round 3: "whatever supply makes SETS finite must
+    // itself be SETS-scaled and so safely inside its own margin" only holds
+    // while rate/SETS stays under ~1000 — any deep target, or any weight
+    // above 1000, routinely clears that.
+    //
+    // Fix round 4: stop tuning a margin against a give-perturbed draw at
+    // all — read pass 1 instead. buildMaxSetsModel (pass 1) has NO give of
+    // any kind: SETS is the direct objective, not a bound relaxed
+    // afterward, so a supply that truly constrains the maximum is drawn to
+    // EXACTLY its rate there, at every scale — no margin modelling required,
+    // just a plain absolute EPS for solver-precision noise (the vendored
+    // solver's own rounding grid is 1e-8, two orders tighter than EPS).
+    // Verified empirically before shipping this: pass 1's shortfall was
+    // exactly 0 at every scale tried, weight 1 through 1e7, and
+    // independently via a rate/SETS ratio up to 1.4e3-to-1 — including a
+    // case where pass 2 itself came back infeasible, outrun by its own
+    // rounding. optimize.js's maxSets now returns supplyAtMax alongside
+    // supplyDrawn (pass 1's own draw, same one-entry-per-supply shape); this
+    // reads that (as `atMax`, above) instead of `drawn`/`chosen`'s.
+    //
+    // supplyDrawn itself — and the `used` shown in supplyUsage above — stays
+    // sourced from `chosen`: "how much did we use" (display, must match the
+    // reported build) and "is this the binding constraint" (detection) are
+    // different questions that were conflated onto one value since Task 2;
+    // only detection moved here.
     const bindingItems = supplies
-      .map((s, i) => ({ s, used: drawn[i]?.used ?? 0 }))
-      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - Math.max(EPS, s.rate * 1e-6) && !hasEnabledProducer(s.itemId))
+      .map((s, i) => ({ s, used: atMax[i]?.used ?? 0 }))
+      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - EPS && !hasEnabledProducer(s.itemId))
       .map(({ s }) => ({ itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6(s.rate) }));
     // Margin below RAW_CLAMP: relative (fix round 2, C1), not the flat `1e6`
     // round 1 shipped. The structural solver gap observed at clamp scale is

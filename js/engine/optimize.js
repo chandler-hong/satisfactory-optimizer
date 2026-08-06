@@ -54,9 +54,35 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // mismatch there would silently misalign rather than throw. Unfiltered: a
   // skipped supply (raw, or a non-positive rate) reports 0 rather than being
   // omitted, so the array stays aligned with `supplies` either way.
+  //
+  // Fix round 4: supplyAtMax mirrors supplyDrawn's exact shape/alignment but
+  // is filled from pass 1 (r1), not `chosen` (pass 2). Two different
+  // questions were conflated onto supplyDrawn alone since Task 2: "how much
+  // did we use" (display — must track `chosen`, the min-raw pass, so the
+  // figure matches the reported build; supplyDrawn keeps doing exactly this,
+  // untouched) versus "is this the binding constraint" (detection). Detection
+  // needs a draw with no give: buildMinRawForSetsModel (lp-builder.js) pins
+  // SETS via `minSets - Math.abs(minSets)*1e-9 - 1e-9` — a give with both a
+  // relative AND a flat term — so `chosen`'s own draw on a genuinely binding
+  // supply can fall short of its rate by more than any margin tuned off the
+  // rate alone once sets is small (the flat term dominates there,
+  // non-monotonically — see js/engine/expansion.js's bindingItems comment).
+  // Pass 1 (buildMaxSetsModel) has no such constraint at all: SETS is the
+  // direct objective, not a bound relaxed by a give, so a supply that truly
+  // constrains the maximum is drawn to EXACTLY its rate here, at every scale
+  // (verified empirically: zero shortfall from weight 1 through 1e7, and
+  // independently via a rate/SETS ratio up to 1.4e3-to-1, before this was
+  // relied on for detection).
   const supplyDrawn = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
+  // Same zero-fill shape as supplyDrawn, kept as an independent array (not
+  // derived from it) so the two can never alias or drift into sharing state.
+  const supplyAtMax = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
   const r1 = solveModel(buildMaxSetsModel(args));
-  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn };
+  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn, supplyAtMax };
+  for (const d of supplyAtMax) {
+    const used = r1.values[supplyVarName(d.itemId, d.kind)] || 0;
+    d.used = Math.round(used * 1e6) / 1e6;
+  }
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
@@ -66,7 +92,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
     const used = chosen.values[supplyVarName(d.itemId, d.kind)] || 0;
     d.used = Math.round(used * 1e6) / 1e6;
   }
-  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn };
+  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn, supplyAtMax };
 }
 
 /** Hit target rates with minimum raw usage; slack variables report shortfalls. */

@@ -208,6 +208,22 @@ test('maxSets: supplyDrawn keeps one entry per input supply even when infeasible
   assert.deepEqual(r.supplyDrawn, [{ itemId: 'screw', kind: 'have', used: 0 }]);
 });
 
+// Fix round 4: supplyAtMax mirrors supplyDrawn's shape (one entry per input
+// supply, zero-filled on the infeasible path), but is sourced from pass 1
+// (buildMaxSetsModel), not `chosen`. Same infeasible setup as the test just
+// above, extended to check the new field carries the identical contract.
+test('maxSets: supplyAtMax keeps one entry per input supply even when infeasible', () => {
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(-10),
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'mf', weight: 1 }],
+    supplies: [{ itemId: 'screw', rate: 40, kind: 'have' }],
+  });
+  assert.equal(r.feasible, false);
+  assert.deepEqual(r.supplyAtMax, [{ itemId: 'screw', kind: 'have', used: 0 }]);
+});
+
 test('maxSets: an unneeded supply reports zero rather than being dropped', () => {
   const r = maxSets({
     dataset: ironChain,
@@ -224,4 +240,79 @@ test('maxSets: an unneeded supply reports zero rather than being dropped', () =>
   assert.deepEqual(r.supplyDrawn[0], { itemId: 'plate', kind: 'pinned', used: 0 }, 'unneeded, but not dropped');
   assert.equal(r.supplyDrawn[1].itemId, 'screw');
   assert.ok(r.supplyDrawn[1].used > 1e-6, `expected screw to be used, got ${r.supplyDrawn[1].used}`);
+});
+
+// Fix round 4: supplyAtMax agrees with supplyDrawn exactly when there is no
+// alternate route to create pass-2-vs-pass-1 degeneracy -- screw's own
+// recipe is disabled, so the supply is the sole source and both passes are
+// forced to draw the identical amount. This is the control: the new field
+// must not diverge from the old one in the ordinary, non-small-sets case.
+test('maxSets: supplyAtMax agrees with supplyDrawn when the supply is the sole source', () => {
+  const baseNoScrew = new Set([...ALL_IRON_RECIPES].filter((id) => id !== 'screw'));
+  const r = maxSets({
+    dataset: ironChain,
+    caps: capsIron(Infinity),
+    enabledRecipeIds: baseNoScrew,
+    targets: [{ itemId: 'rotor', weight: 1 }],
+    supplies: [{ itemId: 'screw', rate: 80, kind: 'pinned' }],
+  });
+  assert.equal(r.feasible, true);
+  assert.equal(r.supplyAtMax.length, 1);
+  assert.equal(r.supplyAtMax[0].itemId, 'screw');
+  assert.ok(Math.abs(r.supplyAtMax[0].used - 80) < 1e-6, `expected 80, got ${r.supplyAtMax[0].used}`);
+  assert.equal(r.supplyAtMax[0].used, r.supplyDrawn[0].used, 'no alternate route exists, so both passes must agree exactly');
+});
+
+/**
+ * Fix round 4, main fix, at the unit level -- the coordinator's own repro,
+ * exercised directly against maxSets() rather than through planExpansion.
+ * A wholly fresh, throwaway two-item dataset (catalyst(1) -> widget(1), one
+ * recipe), not derived from ironChain: have catalyst 1, max widget at
+ * weight 1001. sets lands at 0.000999, small enough that
+ * buildMinRawForSetsModel's flat give term dominates and `chosen`'s own
+ * draw on catalyst (supplyDrawn) falls short of 1 by ~2e-6 -- exactly the
+ * "shortfall 2.0e-6" the coordinator measured. supplyAtMax, read from pass 1
+ * (buildMaxSetsModel, no give at all), must stay exactly 1 regardless.
+ */
+test('maxSets: supplyAtMax stays exact at small sets where supplyDrawn falls short', () => {
+  const toy = {
+    rawResourceIds: new Set(),
+    recipes: [{ id: 'r', inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] }],
+  };
+  const r = maxSets({
+    dataset: toy,
+    caps: new Map(),
+    enabledRecipeIds: new Set(['r']),
+    targets: [{ itemId: 'widget', weight: 1001 }],
+    supplies: [{ itemId: 'catalyst', rate: 1, kind: 'have' }],
+  });
+  assert.equal(r.feasible, true);
+  assert.ok(Math.abs(r.sets - 0.000999) < 1e-9, `expected sets ~0.000999, got ${r.sets}`);
+  assert.ok(r.supplyDrawn[0].used < 1 - 1e-6, `expected supplyDrawn to fall short of 1 past a flat EPS, got ${r.supplyDrawn[0].used}`);
+  assert.equal(r.supplyAtMax[0].used, 1, 'pass 1 has no give, so a binding supply is drawn to exactly its rate');
+});
+
+/**
+ * Fix round 4, finding (a) -- same toy dataset, at a rate/SETS ratio well
+ * above 1e4 (weight 100000 -> sets 1e-5 -> ratio 1e5). The round-3-deferred
+ * concern ("whatever supply makes SETS finite must itself be SETS-scaled and
+ * so safely inside its own margin") only holds under ratio ~1000; this pins
+ * supplyAtMax staying exact two orders past that.
+ */
+test('maxSets: supplyAtMax stays exact at a rate/SETS ratio above 1e4', () => {
+  const toy = {
+    rawResourceIds: new Set(),
+    recipes: [{ id: 'r', inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] }],
+  };
+  const r = maxSets({
+    dataset: toy,
+    caps: new Map(),
+    enabledRecipeIds: new Set(['r']),
+    targets: [{ itemId: 'widget', weight: 100000 }],
+    supplies: [{ itemId: 'catalyst', rate: 1, kind: 'have' }],
+  });
+  assert.equal(r.feasible, true);
+  const ratio = 1 / r.sets;
+  assert.ok(ratio > 1e4, `test setup check: expected ratio above 1e4, got ${ratio}`);
+  assert.equal(r.supplyAtMax[0].used, 1, `pass 1 must stay exact at ratio ${ratio}`);
 });
