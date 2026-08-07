@@ -1344,12 +1344,17 @@ button.codex-io:focus-visible {
   padding: 1rem 1.5rem 2rem;
 }
 
-/* View-wide controls (alternates picker + Mode) above the two-pane grid. Same
-   panel treatment as .sidebar / .exp-rows / .exp-results, because these
-   controls previously had no backing surface at all: .expansion-view is a
-   SIBLING of .app, so .sidebar's rule never reached them and their background
-   chain resolved to body's wallpaper. Fourth occurrence of that sibling trap
-   in this feature; see the three notes earlier in this file. */
+/* View-wide controls outside the two-pane grid: Reset + Mode above it
+   (.exp-controls), the alternates picker below (.exp-alts). Both previously
+   had no backing surface at all — .expansion-view is a SIBLING of .app, so
+   .sidebar's rule never reached them and their background chain resolved to
+   body's wallpaper. Fourth occurrence of that sibling trap in this feature;
+   see the three notes earlier in this file.
+
+   Panel treatment matches .exp-results (16px padding), NOT .sidebar: .sidebar
+   declares 1rem at :184 but :463 overrides it to 1.25rem, so its effective
+   padding is 20px. .exp-results is the right reference anyway — these panels
+   sit in the same view, at the same width. */
 .exp-controls,
 .exp-alts {
   background: var(--surface-2);
