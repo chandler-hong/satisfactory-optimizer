@@ -189,7 +189,9 @@ is byte-identical, because this builder is shared with the live Optimizer."
 
 **Interfaces:**
 - Consumes: `buildMaxSetsModel`'s `supplies` from Task 1.
-- Produces: `maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] })` returning `{ feasible, sets, recipeRates, perPart, bindingResources, supplyDrawn }`. `supplyDrawn` is `[{ itemId, kind, used }]` — **one entry per input supply, unfiltered, in input order**, matching what `hitTargets` already returns. Task 3's binding check depends on that alignment.
+- Produces: `maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] })` returning `{ feasible, sets, recipeRates, perPart, bindingResources, supplyDrawn, supplyAtMax }`. Both supply arrays are `[{ itemId, kind, used }]` — **one entry per input supply, unfiltered, in input order**, matching what `hitTargets` already returns. `supplyDrawn` is filled from the min-raw pass (display: it must match the reported build); `supplyAtMax` is filled from pass 1 (detection). Task 3's fully-consumed check depends on `supplyAtMax`'s alignment.
+
+  > `supplyAtMax` was added by fix round 4, after this plan shipped. Detection originally read `supplyDrawn` and that was the bug: pass 2 relaxes its `SETS` floor by `minSets - Math.abs(minSets) * 1e-9 - 1e-9`, a give with a relative **and** a flat term, so at small `sets` a genuinely binding supply's pass-2 draw falls short of its rate by more than any margin tuned off the rate alone. Pass 1 has no give at all. The steps below are written against the final shape.
 
 - [ ] **Step 1: Read how `hitTargets` builds `supplyDrawn`**
 
@@ -251,7 +253,15 @@ Replace `maxSets`:
 export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies };
   const r1 = solveModel(buildMaxSetsModel(args));
-  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn: [] };
+  const supplyDrawn = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
+  const supplyAtMax = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
+  if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn, supplyAtMax };
+  // Guarded on r1.bounded: an unbounded pass 1 still hands back a finite vertex,
+  // and the simplex is free to park every supply variable at its own cap there
+  // for reasons that have nothing to do with bounding anything.
+  if (r1.bounded) {
+    for (const d of supplyAtMax) d.used = Math.round((r1.values[supplyVarName(d.itemId, d.kind)] || 0) * 1e6) / 1e6;
+  }
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
@@ -260,16 +270,12 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // One entry per input supply, in input order, so callers can pair it back up
   // positionally — same contract hitTargets provides. A skipped supply (raw, or
   // a non-positive rate) reports 0 rather than being omitted.
-  const supplyDrawn = (supplies || []).map((s) => {
-    const kind = s?.kind === 'pinned' ? 'pinned' : 'have';
-    const used = chosen.values[supplyVarName(s?.itemId, kind)] || 0;
-    return { itemId: s?.itemId, kind, used: Math.round(used * 1e6) / 1e6 };
-  });
-  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn };
+  for (const d of supplyDrawn) d.used = Math.round((chosen.values[supplyVarName(d.itemId, d.kind)] || 0) * 1e6) / 1e6;
+  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn, supplyAtMax };
 }
 ```
 
-Note `supplyDrawn` reads from `chosen`, not `r1` — the reported build comes from the min-raw pass, so the drawn amounts must come from the same solution.
+Note `supplyDrawn` reads from `chosen`, not `r1` — the reported build comes from the min-raw pass, so the drawn amounts must come from the same solution. `supplyAtMax` reads from `r1` for the opposite reason: it answers a different question ("does this supply bound the optimum"), and pass 2's give makes `chosen` the wrong place to ask it.
 
 - [ ] **Step 5: Run to verify it passes**
 
@@ -300,7 +306,7 @@ comes from the min-raw pass, so the drawn amounts have to come from there too."
 - Test: `test/engine/expansion.test.js`
 
 **Interfaces:**
-- Consumes: `maxSets` from Task 2 with `supplies` and `supplyDrawn`.
+- Consumes: `maxSets` from Task 2 with `supplies`, `supplyDrawn` and `supplyAtMax`.
 - Produces: `planExpansion({ ..., mode = 'targets' })`. In `'max'` mode the return gains:
   - `maximize: { sets: number, perPart: [{ itemId, name, slug, fluid, weight, rate }], atLimitItems: [{ itemId, name, rate }], bounded: boolean }`
   - `mode: 'targets' | 'max'` echoed back.
@@ -313,7 +319,7 @@ Read `js/engine/expansion.js:260-300` and `:360-390`. You need:
 - `caps` at `:277-283`: every touched raw set to `Infinity`.
 - `nameOf(dataset, id)`, `slugOf(dataset, id)`, `fluidOf(dataset, id)` and `round6` at `:22-25`.
 - `blockLoad(byId, b)` returning `{ recipe, machines, load }` or null.
-- **Do not** reuse `supplyUsage` (`:376-387`) for the binding check. It is filtered to `kind === 'have'`, so a block's `'pinned'` output never appears in it, and its `capped` flag additionally requires `builtItems.has(itemId)` — which in max mode is never true for the excluded item. Compute binding from `solved.supplyDrawn` instead.
+- **Do not** reuse `supplyUsage` (`:376-387`) for the binding check. It is filtered to `kind === 'have'`, so a block's `'pinned'` output never appears in it, and its `capped` flag additionally requires `builtItems.has(itemId)` — which in max mode is never true for the excluded item. Compute it from `solved.supplyAtMax` instead — see Task 2's note on why detection must read pass 1.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -342,8 +348,8 @@ test('planExpansion (max): a block bounds the maximum at its own output', () => 
   assert.equal(p.maximize.perPart.length, 1);
   assert.equal(p.maximize.perPart[0].itemId, 'rotor');
   assert.ok(Math.abs(p.maximize.perPart[0].rate - 3.2) < 1e-6);
-  assert.deepEqual(p.maximize.bindingItems.map((b) => b.itemId), ['screw'],
-    'and it names the line that bound the answer');
+  assert.deepEqual(p.maximize.atLimitItems.map((b) => b.itemId), ['screw'],
+    'and it names the line that is fully consumed');
   assert.ok(machinesOf(p, 'rod') > 0, 'rod is still built for you from free ore');
 });
 
@@ -364,7 +370,7 @@ test('planExpansion (max): excluding the block output recipe is what bounds it',
 test('planExpansion (max): with nothing declared, it reports unbounded and no rate', () => {
   const p = planMax([{ kind: 'max', itemId: 'rotor', weight: 1 }]);
   assert.equal(p.maximize.bounded, false, 'nothing declared can bound this');
-  assert.deepEqual(p.maximize.bindingItems, []);
+  assert.deepEqual(p.maximize.atLimitItems, []);
 });
 
 test('planExpansion (max): a declared line that the target does not need is not binding', () => {
@@ -525,16 +531,31 @@ Everything downstream (`realize`, `beltReport`, `computeNetOutput`, the raw foot
 Before the `return {`, add:
 
 ```js
-  // Binding = this declared supply was consumed to exhaustion. Computed here
-  // rather than from supplyUsage, which is filtered to have-rows only and whose
-  // `capped` flag also requires the item to be LP-built — never true in max mode,
-  // since the item's recipes are excluded by design.
+  // At their limit = this declared supply was consumed to exhaustion AND the
+  // planner could not have made more of it. Computed here rather than from
+  // supplyUsage, which is filtered to have-rows only and whose `capped` flag also
+  // requires the item to be LP-built — never true in max mode, since the item's
+  // recipes are excluded by design.
   const maximize = !isMax ? undefined : (() => {
-    const drawn = solved.supplyDrawn || [];
-    const bindingItems = supplies
-      .map((s, i) => ({ s, used: drawn[i]?.used ?? 0 }))
-      .filter(({ s, used }) => s.rate > EPS && used >= s.rate - EPS)
-      .map(({ s }) => ({ itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6(s.rate) }));
+    const atMax = solved.supplyAtMax || [];
+    // Static reachability, not solved.recipeRates: the min-raw pass can leave a
+    // structurally live producer at rate 0, and that is not the same as dead.
+    const producible = producibleClosure(dataset, solveEnabled, dataset.rawResourceIds).producible;
+    // Deduped by itemId, summing rate: a have row and a pinned block row can
+    // both name the same item, and both being exhausted makes the combined rate
+    // the real ceiling.
+    const byItemId = new Map();
+    for (const { s, used } of supplies.map((s, i) => ({ s, used: atMax[i]?.used ?? 0 }))) {
+      if (!(s.rate > EPS && used >= s.rate - EPS && !producible.has(s.itemId))) continue;
+      const prior = byItemId.get(s.itemId);
+      byItemId.set(s.itemId, { itemId: s.itemId, name: nameOf(dataset, s.itemId), rate: round6((prior?.rate ?? 0) + s.rate) });
+    }
+    const atLimitItems = [...byItemId.values()];
+    // A supply can be drawn dry on one route while the real answer runs away on
+    // a bypass route to the raw clamp, so check that independently. Against
+    // lpNetRaw (the pre-want, pre-credit snapshot), not the adjusted rawUsage.
+    const bounded = atLimitItems.length > 0
+      && [...lpNetRaw.values()].every((v) => v < RAW_CLAMP * (1 - 1e-6));
     return {
       sets: round6(solved.sets || 0),
       perPart: (solved.perPart || []).map((p) => ({
@@ -545,11 +566,22 @@ Before the `return {`, add:
         weight: p.weight,
         rate: round6(p.rate),
       })),
-      bindingItems,
-      bounded: bindingItems.length > 0,
+      // Cleared when unbounded so the two fields can never visually disagree.
+      atLimitItems: bounded ? atLimitItems : [],
+      bounded,
     };
   })();
 ```
+
+> Round 1 shipped a smaller version of this: `bindingItems`, read off `supplyDrawn`, with
+> `bounded: bindingItems.length > 0` and no producibility or raw-clamp gate. Fix rounds 1–5
+> added the two gates, moved detection to `supplyAtMax`, deduped by `itemId`, and renamed the
+> field to `atLimitItems` (naming which line *causes* the maximum is ill-posed — see §5.3 of
+> the design spec). The block above is the shape that shipped; `js/engine/expansion.js` carries
+> the full reasoning for each round. Those rounds also brought two imports this step did not
+> originally need — `producibleClosure` from `./requirements.js` and `RAW_CLAMP` from
+> `./lp-builder.js` — plus `lpNetRaw`, a snapshot of the LP's own raw usage taken before want
+> rows and block raw credit are folded into `rawUsage`.
 
 Add `mode` and `maximize` to the returned object.
 
