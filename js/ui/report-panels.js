@@ -330,3 +330,36 @@ export function renderShortfalls(shortfalls) {
   box.appendChild(list);
   return box;
 }
+
+/**
+ * Alternate-recipe improvement suggestions: an accent callout, each row an
+ * output icon + recipe name + benefit + an Enable button that ticks the
+ * alternate on via `onEnable`. Names via textContent (XSS-safe).
+ *
+ * Shared by the Optimizer (render.js) and Expansion (expansion-render.js).
+ * The benefit label is produced by js/engine/suggestions.js and is already
+ * mode-appropriate, so this renderer never inspects `benefit.kind`.
+ */
+export function renderSuggestions(suggestions, onEnable) {
+  const box = el('div', 'suggestions');
+  const head = el('p', 'suggestions__head');
+  head.textContent = '💡 Improve this build with alternate recipes:';
+  box.appendChild(head);
+  for (const s of suggestions) {
+    const row = el('div', 'suggestion');
+    row.appendChild(iconEl(s.outputSlug, 'item', s.recipeName || ''));
+    const name = el('span', 'suggestion__name');
+    name.textContent = s.recipeName;
+    row.appendChild(name);
+    const benefit = el('span', 'suggestion__benefit');
+    benefit.textContent = s.benefit.label;
+    row.appendChild(benefit);
+    const btn = el('button', 'suggestion__enable');
+    btn.type = 'button';
+    btn.textContent = 'Enable';
+    if (onEnable) btn.addEventListener('click', () => onEnable(s.recipeId));
+    row.appendChild(btn);
+    box.appendChild(row);
+  }
+  return box;
+}
