@@ -129,26 +129,71 @@ test('suggestAlternates: default solver still finds a better alternate (Optimize
   assert.match(r.suggestions[0].benefit.label, /\+30\/min Ingot \(\+50%\)/);
 });
 
+// A single disabled alternate cannot prove call site 3 (the per-candidate re-solve,
+// suggestions.js:119) uses the injected solver: with only one candidate, `plusSet`
+// (base + that one candidate) is set-equal to `allEnabled` (base + every candidate),
+// so a regression that fell back to the real solver at call site 3 would solve the
+// exact same set call site 2 already solved with the SAME injected function — and
+// on this fixture both the real and injected values for that one set land below
+// base.sets either way, so the two paths were indistinguishable by outcome. Two
+// disabled alternates make plusSet differ from allEnabled for each candidate, and
+// the injected values below are chosen so the real solver would reach the opposite
+// suggest/don't-suggest verdict on each one.
 test('suggestAlternates: an injected solve() replaces the built-in solver entirely', () => {
+  const dataset = {
+    rawResourceIds: new Set(['ore']),
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore' }],
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+    ]),
+    recipes: [
+      { id: 'ingot', name: 'ingot', buildingId: 'b', alternate: false, inputs: [io('ore', 30)], outputs: [io('ingot', 30)] },
+      // Real math, load-bearing for the mutation check this test is designed to
+      // catch: with ore capped at 60, ingotAlt run alone reaches 90/min (60 *
+      // 45/30) — a real gain over the base recipe's own 60/min ceiling. ingotBad
+      // run alongside the base recipe never draws any flow at all, since its
+      // conversion (20 ingot per 30 ore) is strictly worse than the base recipe's
+      // (30 per 30) — a real no-op. A real solve therefore favors ingotAlt and
+      // rejects ingotBad; the injected solve below claims the exact opposite.
+      { id: 'ingotAlt', name: 'ingotAlt', buildingId: 'b', alternate: true, inputs: [io('ore', 30)], outputs: [io('ingot', 45)] },
+      { id: 'ingotBad', name: 'ingotBad', buildingId: 'b', alternate: true, inputs: [io('ore', 30)], outputs: [io('ingot', 20)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+  };
+  const enabledRecipeIds = new Set(['ingot']);
+  const caps = new Map([['ore', 60]]);
   const seen = [];
+  // Keyed by the sorted, comma-joined id set, so each of the four distinct sets
+  // suggestAlternates can ask for (base; all-on; ingotAlt-only; ingotBad-only) gets
+  // its own answer, independent of the other three.
+  const SETS_BY_KEY = {
+    ingot: 70,
+    'ingot,ingotAlt': 1,
+    'ingot,ingotBad': 500,
+    'ingot,ingotAlt,ingotBad': 500,
+  };
+  const solve = (ids) => {
+    const key = [...ids].sort().join(',');
+    seen.push(key);
+    const sets = SETS_BY_KEY[key] ?? 0;
+    return {
+      sets,
+      perPart: [{ itemId: 'ingot', weight: 1, rate: sets }],
+      feasible: true,
+      recipeRates: new Map([['ingotAlt', 1], ['ingotBad', 1]]),
+      shortfallTotal: 0,
+    };
+  };
   const r = suggestAlternates({
-    dataset: suggestDs, caps: CAPS, enabledRecipeIds: BASE_ONLY,
+    dataset, caps, enabledRecipeIds, solve,
     mode: 'max', targets: [{ itemId: 'ingot', weight: 1 }],
-    solve: (ids) => {
-      seen.push([...ids].sort().join(','));
-      // Report the alternate as making things worse, the opposite of the truth,
-      // so a suggestion surviving would prove the built-in solver still ran.
-      const hasAlt = ids.has('ingotAlt');
-      return {
-        sets: hasAlt ? 10 : 100,
-        perPart: [{ itemId: 'ingot', weight: 1, rate: hasAlt ? 10 : 100 }],
-        feasible: true,
-        recipeRates: new Map([['ingotAlt', 1]]),
-        shortfallTotal: 0,
-      };
-    },
   });
-  assert.deepEqual(r.suggestions, [], 'an alternate the injected solver says is worse must not be suggested');
+  assert.ok(r.suggestions.some((s) => s.recipeId === 'ingotBad'),
+    'ingotBad, the injected solver\'s claimed winner, must be suggested');
+  assert.ok(!r.suggestions.some((s) => s.recipeId === 'ingotAlt'),
+    'ingotAlt, the injected solver\'s claimed loser, must not be suggested even though it is the real winner');
   assert.ok(seen.includes('ingot'), 'injected solve() should be called for the base set');
-  assert.ok(seen.includes('ingot,ingotAlt'), 'injected solve() should be called for the all-on set');
+  assert.ok(seen.includes('ingot,ingotAlt,ingotBad'), 'injected solve() should be called for the all-on set');
+  assert.ok(seen.includes('ingot,ingotAlt'), 'injected solve() should be called for the ingotAlt-only candidate set (call site 3)');
+  assert.ok(seen.includes('ingot,ingotBad'), 'injected solve() should be called for the ingotBad-only candidate set (call site 3)');
 });
