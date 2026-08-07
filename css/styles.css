@@ -1338,6 +1338,40 @@ button.codex-io:focus-visible {
   padding: 1rem 1.5rem 2rem;
 }
 
+/* View-wide controls (alternates picker + Mode) above the two-pane grid. Same
+   panel treatment as .sidebar / .exp-rows / .exp-results, because these
+   controls previously had no backing surface at all: .expansion-view is a
+   SIBLING of .app, so .sidebar's rule never reached them and their background
+   chain resolved to body's wallpaper. Fourth occurrence of that sibling trap
+   in this feature; see the three notes earlier in this file. */
+.exp-controls {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* Reading width. The same widget is 278px wide in the Optimizer sidebar; left
+   to the panel's full width it stretched to 1352px, so a 60-character recipe
+   name trailed most of a screen of empty row behind it and .alt-row:hover lit
+   a band the full width of the page. Capped rather than made sidebar-narrow:
+   this panel is the whole viewport wide, and matching the sidebar exactly
+   would look like a mistake here. */
+.exp-controls > details,
+.exp-controls > .alt-warning {
+  max-width: 40rem;
+}
+
+/* .alt-warning's top border is a divider from whatever precedes it in the
+   sidebar; here it's the panel's first child, so that border would read as a
+   stray rule across the panel and the top margin as dead space. */
+.exp-controls > .alt-warning:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .exp {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -1539,9 +1573,13 @@ button.codex-io:focus-visible {
 
 .exp-goal-add { width: 100%; margin-top: 0.5rem; }
 
+/* Last child of .exp-controls, directly under the alternates disclosure. The
+   list inside that disclosure is a 16rem scroll box, so its final row is
+   deliberately half-cut to signal more below — with no gap at all the Mode
+   row read as part of that clipped list rather than as a separate control. */
 .exp-mode {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  margin: 0 0 0.6rem;
+  margin: 1rem 0 0;
 }

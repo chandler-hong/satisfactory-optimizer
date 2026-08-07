@@ -495,9 +495,6 @@ export function buildExpansion(dataset, container) {
     return ids;
   }
 
-  container.appendChild(altPicker.warningEl);
-  container.appendChild(altPicker.el);
-
   const modeSelect = el('select');
   for (const [value, label] of [['targets', 'Target rates'], ['max', 'Maximize']]) {
     const opt = el('option');
@@ -510,7 +507,20 @@ export function buildExpansion(dataset, container) {
   const modeLabel = el('span', 'target-row__label');
   modeLabel.textContent = 'Mode';
   modeRow.append(modeLabel, modeSelect);
-  container.appendChild(modeRow);
+
+  // These three are view-wide controls, so they sit above the two-pane grid
+  // rather than inside either pane — but appended straight into `container`
+  // they had no backing surface at all: .expansion-view is a SIBLING of .app
+  // (index.html), so neither .sidebar's nor .results' panel treatment reaches
+  // here, and the computed background chain ran all the way up to body's
+  // wallpaper. 110 recipe rows and their icons painted directly on it, which
+  // also made a liar of the invariant css/styles.css states over that
+  // wallpaper ("UI panels are opaque, so content readability is never
+  // affected"). .exp-controls gives them the same panel .sidebar/.exp-rows/
+  // .exp-results already use.
+  const controls = el('div', 'exp-controls');
+  controls.append(altPicker.warningEl, altPicker.el, modeRow);
+  container.appendChild(controls);
 
   const grid = el('div', 'exp');
   container.appendChild(grid);
