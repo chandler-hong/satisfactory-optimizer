@@ -6,6 +6,9 @@
  *
  * Alternates are OFF by default: you have to unlock them in-game, so a fresh
  * plan should only assume the base recipes.
+ *
+ * Enable all / Disable all are scoped to the search filter, and say so in their
+ * own labels — see bulkLabel.
  */
 import { iconUrl } from './icons.js';
 
@@ -13,6 +16,33 @@ function el(tag, className) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   return node;
+}
+
+/**
+ * The rows a query is showing, in list order — the single source of truth for
+ * "what is the user actually looking at". Both the row-hiding in the search
+ * handler and the scope of the bulk buttons go through this, so the buttons
+ * cannot act on rows the filter has hidden.
+ *
+ * Exported for tests: createAltPicker needs a DOM and the suite has no shim
+ * (see README), so the decisions it gets wrong are pulled out here.
+ */
+export function filterRows(rows, query) {
+  const q = String(query ?? '').trim().toLowerCase();
+  if (!q) return [...rows];
+  return rows.filter((r) => r.name.toLowerCase().includes(q));
+}
+
+/**
+ * Label for a bulk button. Bulk actions are scoped to the filter — "Disable
+ * all" wiping 99 enabled recipes you can't see is destructive and invisible,
+ * and with the picker now driving two views (Expansion starts with all 110
+ * off, so bulk enable is a common first move there) getting it wrong is easy
+ * to do and hard to notice. So the label states the scope: plain "Enable all"
+ * only when the list really is the whole list.
+ */
+export function bulkLabel(verb, shown, total) {
+  return shown === total ? `${verb} all` : `${verb} ${shown} shown`;
 }
 
 export function createAltPicker({ dataset, onChange, warningText }) {
@@ -38,12 +68,12 @@ export function createAltPicker({ dataset, onChange, warningText }) {
   bulkRow.style.display = 'flex';
   bulkRow.style.gap = '0.4rem';
   bulkRow.style.margin = '0 0 0.5rem';
+  // Labels are owned by updateBulkScope below (they track the filter), so none
+  // are set here — two places writing them is how they'd drift apart.
   const enableAllBtn = el('button');
   enableAllBtn.type = 'button';
-  enableAllBtn.textContent = 'Enable all';
   const disableAllBtn = el('button');
   disableAllBtn.type = 'button';
-  disableAllBtn.textContent = 'Disable all';
   bulkRow.append(enableAllBtn, disableAllBtn);
   details.appendChild(bulkRow);
 
@@ -82,19 +112,31 @@ export function createAltPicker({ dataset, onChange, warningText }) {
   });
   updateSummary();
 
+  // Both bulk buttons act on the filtered list, never the hidden remainder.
   function setAll(value) {
-    for (const e of entries) e.cb.checked = value;
+    const shown = filterRows(entries, search.value);
+    if (shown.length === 0) return;
+    for (const e of shown) e.cb.checked = value;
     updateSummary();
     onChange();
   }
+  function updateBulkScope() {
+    const shown = filterRows(entries, search.value).length;
+    enableAllBtn.textContent = bulkLabel('Enable', shown, entries.length);
+    disableAllBtn.textContent = bulkLabel('Disable', shown, entries.length);
+    // A filter that matches nothing leaves the buttons with nothing to do, and
+    // a button that silently no-ops reads as broken.
+    enableAllBtn.disabled = shown === 0;
+    disableAllBtn.disabled = shown === 0;
+  }
+  updateBulkScope();
   enableAllBtn.addEventListener('click', () => setAll(true));
   disableAllBtn.addEventListener('click', () => setAll(false));
 
   search.addEventListener('input', () => {
-    const q = search.value.trim().toLowerCase();
-    for (const e of entries) {
-      e.rowEl.style.display = !q || e.name.toLowerCase().includes(q) ? '' : 'none';
-    }
+    const shown = new Set(filterRows(entries, search.value));
+    for (const e of entries) e.rowEl.style.display = shown.has(e) ? '' : 'none';
+    updateBulkScope();
   });
 
   const warningEl = el('p', 'alt-warning');
@@ -121,6 +163,7 @@ export function createAltPicker({ dataset, onChange, warningText }) {
       for (const e of entries) { e.cb.checked = false; e.rowEl.style.display = ''; }
       search.value = '';
       updateSummary();
+      updateBulkScope();   // the cleared search widens the bulk buttons back to "all"
     },
   };
 }
