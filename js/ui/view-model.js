@@ -88,11 +88,24 @@ export function computePlan(dataset, req) {
   let shortfalls = [];
   let perPart = [];
   let recipeRates;
+  // Which raw caps bind is the ENGINE's answer, not something to re-derive here.
+  // This used to be a second, independent copy of the test (`used >= available
+  // - 1e-6`) run against the reported build's own usage -- and it was the copy
+  // that actually reached the screen, so the engine's `bindingResources` had no
+  // production consumer and no way to be wrong out loud. In Maximize mode that
+  // reported usage is pass 2's, which sits a relative sliver under every
+  // binding cap, so the flat margin stopped detecting anything above roughly
+  // 990/min: the meter rendered 100% full with no "maxed" chip and no
+  // bottleneck highlight for any realistic node. maxSets now answers from
+  // pass 1, where there is no give to model (see optimize.js); reading it here
+  // makes that the single source of truth for both modes.
+  let bindingRaw = new Set();
 
   if (mode === 'targets') {
     const r = hitTargets({ dataset, caps, enabledRecipeIds, targets: req.targets, noWaste });
     feasible = r.feasible;
     recipeRates = r.recipeRates;
+    bindingRaw = new Set(r.bindingResources);
     shortfalls = [...r.shortfalls].map(([itemId, amount]) => ({ itemId, name: nameOf(dataset, itemId), amount: fmt2(amount), fluid: fluidOf(dataset, itemId) }));
     headline = feasible ? 'All target rates met' : `${shortfalls.length} target(s) short`;
   } else {
@@ -105,6 +118,7 @@ export function computePlan(dataset, req) {
     const r = maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste });
     feasible = r.feasible;
     recipeRates = r.recipeRates;
+    bindingRaw = new Set(r.bindingResources);
     perPart = r.perPart.map((p) => ({ itemId: p.itemId, name: nameOf(dataset, p.itemId), slug: slugOf(dataset, p.itemId), rate: fmt2(p.rate), fluid: fluidOf(dataset, p.itemId) }));
     if (!feasible) headline = 'Infeasible with these resources';
     else if (perPart.length === 1) headline = `${perPart[0].rate}${perPart[0].fluid ? ' m³' : ''} ${perPart[0].name}/min`;
@@ -123,7 +137,7 @@ export function computePlan(dataset, req) {
     .map(([itemId, available]) => {
       const used = Math.max(0, usage.get(itemId) || 0);
       const unlimited = !Number.isFinite(available);
-      return { itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), used: fmt2(used), available, unlimited, pct: unlimited || !(available > 0) ? 0 : Math.min(1, used / available), binding: !unlimited && available > 0 && used >= available - 1e-6, fluid: fluidOf(dataset, itemId) };
+      return { itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), used: fmt2(used), available, unlimited, pct: unlimited || !(available > 0) ? 0 : Math.min(1, used / available), binding: bindingRaw.has(itemId), fluid: fluidOf(dataset, itemId) };
     });
 
   const buildRows = phys.perRecipe

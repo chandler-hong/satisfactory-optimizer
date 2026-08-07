@@ -363,3 +363,31 @@ test('hitTargets: a raw target is reported short, never met by blowing its cap',
   assert.equal(r.shortfalls.get('ore'), 1000);
   assert.equal(r.recipeRates.size, 0, 'and it builds nothing to pretend otherwise');
 });
+
+// --- bottleneck detection must not depend on the size of the cap ------------
+/**
+ * bindingResources used to be computed from the min-raw SECOND pass, whose
+ * SETS relaxation (`|minSets|*1e-9 + 1e-9`, buildMinRawForSetsModel) frees
+ * roughly `cap*1e-9 + (cap/sets)*1e-9` raw units. That is a RELATIVE shortfall
+ * measured against a FLAT 1e-6 margin, so detection silently switched off once
+ * the cap grew past ~1e3. The only pre-existing coverage sat at cap 360, just
+ * under the crossover, which is why it never showed. Pass 1 has no give, so
+ * the answer is now the same at every scale.
+ */
+for (const cap of [360, 1000, 5000, 70000, 1e6]) {
+  test(`maxSets: ore reports as binding at cap ${cap}`, () => {
+    const r = maxSets({ dataset: ironChain, caps: capsIron(cap), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 1 }] });
+    assert.equal(r.feasible, true);
+    assert.ok(approx(r.sets, cap / 24, cap * 1e-6), `test setup check: sets should scale with the cap, got ${r.sets}`);
+    assert.deepEqual(r.bindingResources, ['ore'], `the only capped resource is exhausted at cap ${cap}`);
+  });
+}
+
+test('maxSets: a cap the plan cannot exhaust is not reported as binding', () => {
+  // 360 ore is the whole budget; ask for a fraction of it by weighting a cheap
+  // target so the LP leaves ore slack... it cannot, so use a second, oversized
+  // resource instead: 'spare' is capped but no recipe touches it.
+  const caps = new Map([['ore', 70000], ['spare', 70000]]);
+  const r = maxSets({ dataset: ironChain, caps, enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 1 }] });
+  assert.deepEqual(r.bindingResources, ['ore'], 'an untouched cap must not be reported as maxed');
+});

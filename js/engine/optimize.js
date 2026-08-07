@@ -1,14 +1,38 @@
 import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel, supplyVarName } from './lp-builder.js';
 import { solveModel } from './solver.js';
 
-function ratesFrom(values, enabledRecipeIds) {
+// `eps` drops solver dust from a rate map meant for DISPLAY. Pass 0 when the
+// map feeds bindingResources: dropping a recipe running at 1e-9 also drops its
+// raw draw, and a single high-throughput recipe (~1500/min in the real dataset)
+// hides up to 1.5e-6 of usage that way — larger than the margin below, so the
+// filter could by itself turn a binding resource into a non-binding one.
+function ratesFrom(values, enabledRecipeIds, eps = 1e-9) {
   const m = new Map();
   for (const [k, v] of Object.entries(values)) {
-    if (enabledRecipeIds.has(k) && v > 1e-9) m.set(k, v);
+    if (enabledRecipeIds.has(k) && v > eps) m.set(k, v);
   }
   return m;
 }
 
+/**
+ * Which capped raw resources the plan draws all the way to their cap.
+ *
+ * MUST be given rates from a pass whose objective is the answer itself, never
+ * from a min-raw second pass. The margin here is FLAT, and it can only stay
+ * flat because a give-free pass leaves no relative slack for it to model: the
+ * sole error left is the solver's own floating-point noise, on the order of
+ * `cap * 1.2e-16`, which reaches 1e-6 only at cap ~= 8.3e9 -- above RAW_CLAMP
+ * (1e9, lp-builder.js), the largest cap the LP can be handed at all.
+ *
+ * Feeding it pass-2 rates was the bug this margin kept being blamed for.
+ * buildMinRawForSetsModel relaxes SETS by `|minSets|*1e-9 + 1e-9`, which frees
+ * roughly `cap*1e-9 + (cap/sets)*1e-9` raw units -- a RELATIVE shortfall that
+ * outgrows any flat margin. Measured on the real dataset maximizing Rotor from
+ * Iron Ore: 780/min cap fell 7.8e-7 short (detected), 2400/min fell 2.4e-6
+ * short (missed), 70000/min fell 7.0e-5 short (missed). The crossover sits near
+ * 990/min, so every cap above roughly one Mk.2 miner on a pure node went
+ * undetected.
+ */
 function bindingResources(dataset, caps, recipeRates) {
   const usage = new Map();
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
@@ -168,6 +192,22 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // magnitude to reach it, so a future reader raising MAX_RATE or
   // MAX_MACHINES that far needs to re-derive this margin rather than assume
   // EPS still clears it.
+  // Same pass-1 sourcing as supplyAtMax above, and for the same reason, applied
+  // to raw caps instead of declared supplies: "which cap stops the answer going
+  // higher" is a question about the MAXIMUM, so it is read off the pass that
+  // computes the maximum. Pass 2 answers a different question ("what does the
+  // reported build consume") and gives back a sliver of every binding raw, so
+  // any margin measured against its output has to model a relative give -- the
+  // repeated mistake bindingResources' own comment now records.
+  //
+  // The two do diverge in principle: pass 2 minimises TOTAL raw, so on a
+  // degenerate LP it may reach the same sets via a different mix and leave a
+  // pass-1-binding resource genuinely slack. Then the chip marks a meter that
+  // reads below full. Accepted deliberately -- it is the honest answer to what
+  // the chip claims (this cap is what caps you), it is the behaviour
+  // supplyAtMax already established for supplies, and the alternative is
+  // detecting nothing at all above ~990/min. Not observed on the real dataset.
+  const atMaxRates = r1.bounded ? ratesFrom(r1.values, enabledRecipeIds, 0) : new Map();
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
@@ -177,7 +217,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
     const used = chosen.values[supplyVarName(d.itemId, d.kind)] || 0;
     d.used = Math.round(used * 1e6) / 1e6;
   }
-  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, recipeRates), supplyDrawn, supplyAtMax };
+  return { feasible: true, sets, recipeRates, perPart, bindingResources: bindingResources(dataset, caps, atMaxRates), supplyDrawn, supplyAtMax };
 }
 
 /** Hit target rates with minimum raw usage; slack variables report shortfalls. */

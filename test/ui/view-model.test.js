@@ -335,3 +335,33 @@ test('computePlan: no suggestions when the dataset has no disabled alternates', 
   });
   assert.deepEqual(view.suggestions, []);
 });
+
+/**
+ * The "maxed" chip and the meter--binding highlight (render.js) both come from
+ * this flag, and computePlan used to recompute the test itself against the
+ * reported build's usage with a flat 1e-6 margin. In Maximize mode that usage
+ * is the min-raw pass's, which sits a relative sliver under every binding cap,
+ * so above roughly 990/min the meter rendered 100% full with no bottleneck
+ * marker at all. One Mk.3 miner on a pure node is 780/min and a few nodes put
+ * any real plan well past the crossover. The flag now comes from the engine.
+ */
+for (const cap of [360, 1000, 5000, 70000, 1e6]) {
+  test(`computePlan (max mode): the ore meter reads as binding at cap ${cap}`, () => {
+    const view = computePlan(ironChain, {
+      mode: 'max', caps: capsIron(cap), enabledRecipeIds: ALL_IRON_RECIPES,
+      targets: [{ itemId: 'mf', weight: 1 }], shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+    });
+    const ore = view.resourceMeters.find((m) => m.itemId === 'ore');
+    assert.ok(approx(ore.used, cap, cap * 1e-6), `test setup check: the plan should drain the cap, used ${ore.used}`);
+    assert.equal(ore.binding, true, `cap ${cap} is exhausted, so the meter must be marked binding`);
+  });
+}
+
+test('computePlan (targets mode): an unexhausted cap is not marked binding', () => {
+  const view = computePlan(ironChain, {
+    mode: 'targets', caps: capsIron(70000), enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: { mf: 15 }, shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  const ore = view.resourceMeters.find((m) => m.itemId === 'ore');
+  assert.equal(ore.binding, false, '15 mf needs 360 of 70000 ore');
+});
