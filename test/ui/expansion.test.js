@@ -309,7 +309,55 @@ test('computeExpansionResult: no suggestions when the plan is unbounded', () => 
   assert.deepEqual(res.plan.suggestions, [], 'an unbounded plan gets no suggestions');
 });
 
-// Test 5 ("an alternate declared as a block is still suggested", pinning spec
-// §7's edge-case row) is intentionally not included here yet. Verified against
-// the real engine, its fixture cannot produce the assertion it expects — see
-// the task report for the full trace. Held out rather than faked.
+// The brief's 5th test asserted that a disabled alternate declared as a block
+// is "still suggested" (pinning spec §7's edge-case row: "enabling it lets the
+// planner add more, which is a real gain"). Verified against the real,
+// unmodified engine: this exact fixture produces zero suggestions, not one for
+// plateAlt. Traced to js/engine/expansion.js:118-156 (blockOutputExclusions):
+// declaring a recipe as a block adds ITS OWN primary output to `declared`, and
+// the exclusion matches by output item, not by recipe identity — so a
+// block-declared recipe always excludes itself from every one of
+// suggestAlternates' internal solves (base, all-alternates-on, and the
+// per-candidate re-solve). It can never accumulate a recipeRate there, never
+// pass suggestAlternates' "only alternates the optimum actually uses" filter,
+// and so never reaches benefitOf. This holds no matter which recipe is chosen
+// as the block for that output (the match is item-scoped, not recipe-scoped)
+// and is not a fixture problem — it is a structural consequence of the
+// exclusion rule, which is deliberate and documented at expansion.js:118-147
+// as closing a free-raws-into-capped-item hole. This test pins that verified,
+// documented behaviour instead of the spec row it cannot satisfy; see the
+// task report for the full derivation and a recommendation to reconcile spec
+// §7 with blockOutputExclusions.
+test('computeExpansionResult: an alternate declared as a block excludes itself from suggestions', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),
+    items: new Map([
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['plate', { id: 'plate', name: 'Plate', slug: 'plate' }],
+    ]),
+    recipes: [
+      { id: 'ingotMaker', name: 'ingotMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('ingot', 60)] },
+      { id: 'plate', name: 'plate', buildingId: 'b', alternate: false, inputs: [io('ingot', 30)], outputs: [io('plate', 20)] },
+      { id: 'plateAlt', name: 'plateAlt', buildingId: 'b', alternate: true, inputs: [io('ingot', 30)], outputs: [io('plate', 30)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+    goals: [],
+  };
+  const res = computeExpansionResult({
+    dataset: ds,
+    rows: [
+      { kind: 'block', recipeId: 'ingotMaker', machines: 1, clock: 1 },
+      { kind: 'block', recipeId: 'plateAlt', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plate', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['ingotMaker', 'plate']),   // plateAlt declared but NOT enabled
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.maximize.bounded, true, 'the plate block still bounds the plan at its own pinned rate');
+  assert.deepEqual(
+    res.plan.suggestions, [],
+    'plateAlt cannot be suggested for producing more of its own block-declared output',
+  );
+});
