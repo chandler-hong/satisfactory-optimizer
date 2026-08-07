@@ -79,21 +79,29 @@ const magnitude = (b) => b.deltaShortfall ?? b.deltaMachines ?? b.deltaRaw ?? b.
  * Composes the existing optimizer + physical layer; pure, no DOM.
  */
 export function suggestAlternates(
-  { dataset, caps, enabledRecipeIds, mode, targets, noWaste = false, shardBudget = 0 },
+  { dataset, caps, enabledRecipeIds, mode, targets, noWaste = false, shardBudget = 0, solve },
   { maxSuggestions = 4, maxCandidates = 12 } = {},
 ) {
   const disabledAlts = dataset.recipes.filter((r) => r.alternate && !enabledRecipeIds.has(r.id));
   if (disabledAlts.length === 0) return { suggestions: [], evaluatedCount: 0, capped: false };
 
+  // The caller may supply its own solver. Expansion does, because its plans are
+  // bounded by declared blocks and Have rows rather than by raw caps, and
+  // `solveFor` below models neither — pointed at an Expansion plan it would
+  // rank alternates against a node-fed factory the user does not have. Passing
+  // planExpansion in means those semantics are inherited rather than restated
+  // here, which is where this project's escaped bugs have come from.
   const params = { dataset, caps, mode, targets, noWaste };
-  const base = solveFor(params, enabledRecipeIds);
+  const solveWith = solve || ((recipeIds) => solveFor(params, recipeIds));
+
+  const base = solveWith(enabledRecipeIds);
   // Machine/raw metrics feed only the target-rates benefits; in Maximize mode the
   // benefit is output-only, so skip the realize() work entirely (baseM/plusM null).
   const baseM = mode === 'targets' ? metricsFor(dataset, base.recipeRates, shardBudget) : null;
 
   const allEnabled = new Set(enabledRecipeIds);
   for (const r of disabledAlts) allEnabled.add(r.id);
-  const all = solveFor(params, allEnabled);
+  const all = solveWith(allEnabled);
 
   // Only alternates the global optimum actually uses can help; rank by usage.
   let candidates = disabledAlts
@@ -108,7 +116,7 @@ export function suggestAlternates(
   for (const cand of candidates) {
     const plusSet = new Set(enabledRecipeIds);
     plusSet.add(cand.id);
-    const plus = solveFor(params, plusSet);
+    const plus = solveWith(plusSet);
     const plusM = mode === 'targets' ? metricsFor(dataset, plus.recipeRates, shardBudget) : null;
     const benefit = benefitOf(mode, base, baseM, plus, plusM, nameOf);
     if (benefit) kept.push({ recipeId: cand.id, recipeName: cand.name, outputItemId: byId.get(cand.id)?.outputs?.[0]?.itemId, benefit });

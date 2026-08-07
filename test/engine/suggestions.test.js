@@ -100,3 +100,55 @@ test('respects the maxCandidates cap', () => {
   assert.equal(out.capped, true);
   assert.ok(out.suggestions.length <= 1);
 });
+
+// ore(raw) -> ingot. `ingotAlt` is a strictly better alternate: same ore in,
+// 45 ingot out instead of 30. Small enough to reason about by hand.
+const suggestDs = {
+  rawResourceIds: new Set(['ore']),
+  items: new Map([
+    ['ore', { id: 'ore', name: 'Ore', slug: 'ore' }],
+    ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+  ]),
+  recipes: [
+    { id: 'ingot', name: 'ingot', buildingId: 'b', alternate: false, inputs: [io('ore', 30)], outputs: [io('ingot', 30)] },
+    { id: 'ingotAlt', name: 'ingotAlt', buildingId: 'b', alternate: true, inputs: [io('ore', 30)], outputs: [io('ingot', 45)] },
+  ],
+  buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+};
+const BASE_ONLY = new Set(['ingot']);
+const CAPS = new Map([['ore', 60]]);
+
+test('suggestAlternates: default solver still finds a better alternate (Optimizer path)', () => {
+  const r = suggestAlternates({
+    dataset: suggestDs, caps: CAPS, enabledRecipeIds: BASE_ONLY,
+    mode: 'max', targets: [{ itemId: 'ingot', weight: 1 }],
+  });
+  assert.equal(r.suggestions.length, 1, 'the one disabled alternate should be suggested');
+  assert.equal(r.suggestions[0].recipeId, 'ingotAlt');
+  assert.equal(r.suggestions[0].benefit.kind, 'output');
+  assert.match(r.suggestions[0].benefit.label, /\+30\/min Ingot \(\+50%\)/);
+});
+
+test('suggestAlternates: an injected solve() replaces the built-in solver entirely', () => {
+  const seen = [];
+  const r = suggestAlternates({
+    dataset: suggestDs, caps: CAPS, enabledRecipeIds: BASE_ONLY,
+    mode: 'max', targets: [{ itemId: 'ingot', weight: 1 }],
+    solve: (ids) => {
+      seen.push([...ids].sort().join(','));
+      // Report the alternate as making things worse, the opposite of the truth,
+      // so a suggestion surviving would prove the built-in solver still ran.
+      const hasAlt = ids.has('ingotAlt');
+      return {
+        sets: hasAlt ? 10 : 100,
+        perPart: [{ itemId: 'ingot', weight: 1, rate: hasAlt ? 10 : 100 }],
+        feasible: true,
+        recipeRates: new Map([['ingotAlt', 1]]),
+        shortfallTotal: 0,
+      };
+    },
+  });
+  assert.deepEqual(r.suggestions, [], 'an alternate the injected solver says is worse must not be suggested');
+  assert.ok(seen.includes('ingot'), 'injected solve() should be called for the base set');
+  assert.ok(seen.includes('ingot,ingotAlt'), 'injected solve() should be called for the all-on set');
+});
