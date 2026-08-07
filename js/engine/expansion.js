@@ -350,11 +350,32 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     if (typeof r?.itemId !== 'string' || !r.itemId) continue;
     // Number(x) > 0 alone lets a literal Infinity through (Infinity > 0 is
     // true), which the UI layer's sanitizeState already blocks on reload but
-    // this direct-from-row-read path does not go through. No ceiling here:
-    // the LP takes a weight as one more coefficient, not an allocation size
-    // (see planExpansion (max): stays bounded at a rate/SETS ratio above 1e4
-    // in test/engine/expansion.test.js, pinned at weight 100000), so this
-    // guard's job is finiteness, not magnitude.
+    // this direct-from-row-read path does not go through. So this guard's job
+    // is finiteness.
+    //
+    // It is NOT that magnitude is harmless — an earlier version of this
+    // comment claimed exactly that ("this guard's job is finiteness, not
+    // magnitude") and it is false. Measured on the same shape as the
+    // block-bounds-the-maximum test in test/engine/expansion.test.js (a
+    // 2-machine screw block, max rotor): pass 1 is healthy at weight 3.8e6
+    // (sets = 8.4e-7, the pinned 80/min screw supply drawn to exactly its
+    // rate, bounded:true) and has collapsed by 4e6, where jsLPSolver returns
+    // objective 0 outright. supplyAtMax then reads 0, atLimitItems empties,
+    // and a genuinely bounded plan reports bounded:false — rendered to the
+    // user as "unbounded". That is ill-conditioning in the solve, not round6:
+    // `sets` is 0 in the raw solver output, before any rounding here.
+    //
+    // What actually keeps the answer away from that cliff is MAX_WEIGHT =
+    // 10000 (js/ui/expansion.js), enforced on both the live read() and
+    // sanitizeState, so neither a keystroke nor a hand-edited payload can get
+    // past it — 400x of headroom. Deliberately not restated as an engine-side
+    // clamp: it would be redundant with the UI bound and would break the pin
+    // at test/engine/expansion.test.js's weight-100000 case, which is
+    // deliberately above MAX_WEIGHT. That test is not the headroom evidence it
+    // used to be cited as, either — 1e5 sits 10x above MAX_WEIGHT and only 40x
+    // below the cliff; what it pins is the rate/SETS ratio fix round 4 was
+    // about. A future reader raising MAX_WEIGHT needs to re-measure the cliff,
+    // not assume this margin survives.
     const w = Number(r.weight);
     const weight = Number.isFinite(w) && w > 0 ? w : 1;
     // Two rows on the same item are the same target twice, not two targets —
