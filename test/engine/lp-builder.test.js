@@ -159,3 +159,19 @@ test('buildMaxSetsModel: omitting supplies changes nothing', () => {
   assert.equal(Object.keys(bare.constraints).some((k) => k.startsWith('_supcap_')), false,
     'and no supply-cap constraint appears');
 });
+
+// A target names an item the model can PRODUCE. Raw items hold a
+// net-consumption budget in that same constraint slot, so writing a target
+// constraint over one deletes the cap — the model-level cause of the
+// `sets = Infinity` and "met by overdrawing the cap" bugs.
+test('buildMaxSetsModel: a raw target leaves the {max: cap} constraint intact', () => {
+  const m = buildMaxSetsModel({ dataset, caps, enabledRecipeIds: ALL, targets: [{ itemId: 'ore', weight: 1 }] });
+  assert.deepEqual(m.constraints.ore, { max: 60 }, 'the raw cap must survive');
+  assert.equal(m.variables.__sets__.ore, undefined, 'and SETS must not pull on a net-consumption row');
+});
+
+test('buildTargetRatesModel: a raw target leaves the {max: cap} constraint intact', () => {
+  const m = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: new Map([['ore', 1000]]) });
+  assert.deepEqual(m.constraints.ore, { max: 60 }, 'the raw cap must survive');
+  assert.equal(m.variables._slack_ore, undefined, 'and no slack variable pretends the demand is representable');
+});

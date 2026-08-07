@@ -55,7 +55,19 @@ export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWas
  *   different passes and must not be conflated.
  */
 export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
-  const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies };
+  // Only producible targets reach the LP, and the SAME filtered list feeds both
+  // the model and `perPart` below, so the reported breakdown can never describe
+  // a target the solve did not actually contain.
+  //
+  // A raw resource is not producible here: the model holds raw items as a net-
+  // consumption budget against {max: cap}, not as a balance something can add to
+  // (buildMaxSetsModel, lp-builder.js, skips them for the same reason and spells
+  // out the two ways one used to corrupt the model). Dropping it at this layer
+  // as well is not belt-and-braces duplication — it is what makes the empty case
+  // below detectable, since "every target was raw" and "no targets at all" have
+  // to reach the same answer.
+  const buildable = (targets || []).filter((t) => t?.itemId && !dataset.rawResourceIds.has(t.itemId));
+  const args = { dataset, caps, enabledRecipeIds, targets: buildable, noWaste, supplies };
   // Built once, up front, so the infeasible early return below carries the same
   // one-entry-per-input-supply shape as the feasible path — callers zip this
   // positionally against `supplies` (see js/engine/expansion.js), and a length
@@ -88,6 +100,18 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // Same zero-fill shape as supplyDrawn, kept as an independent array (not
   // derived from it) so the two can never alias or drift into sharing state.
   const supplyAtMax = (supplies || []).map((s) => ({ itemId: s?.itemId, kind: s?.kind === 'pinned' ? 'pinned' : 'have', used: 0 }));
+  // Nothing to maximize — either no targets were passed, or every one of them
+  // was raw and got filtered out above. Do NOT hand this to the solver: with no
+  // target coefficients, `__sets__` appears in no constraint at all, so the LP
+  // is trivially unbounded and returns sets = Infinity with feasible:true. That
+  // is the same wrong answer the raw-target path used to give, arriving by a
+  // second route, and it is live today for an Optimizer session in Maximize
+  // mode with no part picked yet. The flat zero shape is the answer callers
+  // already expect for "nothing asked for" — planExpansion (expansion.js)
+  // hand-rolls exactly this shape for its own empty-target case, so returning
+  // it here means the engine and that caller finally agree instead of one
+  // guarding around the other.
+  if (buildable.length === 0) return { feasible: true, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn, supplyAtMax };
   const r1 = solveModel(buildMaxSetsModel(args));
   if (!r1.feasible) return { feasible: false, sets: 0, recipeRates: new Map(), perPart: [], bindingResources: [], supplyDrawn, supplyAtMax };
   // Fix round 5, Critical: an UNBOUNDED pass 1 (feasible:true, bounded:false,
@@ -148,7 +172,7 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
   const recipeRates = ratesFrom(chosen.values, enabledRecipeIds);
-  const perPart = targets.map((t) => ({ itemId: t.itemId, weight: t.weight, rate: (t.weight > 0 ? t.weight : 1) * sets }));
+  const perPart = buildable.map((t) => ({ itemId: t.itemId, weight: t.weight, rate: (t.weight > 0 ? t.weight : 1) * sets }));
   for (const d of supplyDrawn) {
     const used = chosen.values[supplyVarName(d.itemId, d.kind)] || 0;
     d.used = Math.round(used * 1e6) / 1e6;
@@ -161,7 +185,17 @@ export function hitTargets({ dataset, caps, enabledRecipeIds, targets, noWaste =
   const targetMap = targets instanceof Map ? targets : new Map(Object.entries(targets));
   const r = solveModel(buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets: targetMap, noWaste, supplies }));
   const shortfalls = new Map();
-  for (const t of targetMap.keys()) {
+  for (const [t, d] of targetMap) {
+    // buildTargetRatesModel skips a raw target entirely (see the comment there:
+    // its constraint slot already holds a {max: cap} budget that a {min: d}
+    // would overwrite), so there is no slack variable to read and the demand is
+    // met by nothing at all. Report the whole ask as short rather than let the
+    // caller infer "met" from a missing slack — silently dropping it is what
+    // made a 1000/min Iron Ore request under a 240/min cap read as a success.
+    if (dataset.rawResourceIds.has(t)) {
+      if (d > 1e-6) shortfalls.set(t, d);
+      continue;
+    }
     const s = r.values[`_slack_${t}`] || 0;
     if (s > 1e-6) shortfalls.set(t, s);
   }

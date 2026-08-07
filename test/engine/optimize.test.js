@@ -316,3 +316,50 @@ test('maxSets: supplyAtMax stays exact at a rate/SETS ratio above 1e4', () => {
   assert.ok(ratio > 1e4, `test setup check: expected ratio above 1e4, got ${ratio}`);
   assert.equal(r.supplyAtMax[0].used, 1, `pass 1 must stay exact at ratio ${ratio}`);
 });
+
+// --- raw resources are not producible targets -------------------------------
+/**
+ * Live bug: a raw resource picked as a max target came back
+ * `{ sets: Infinity, feasible: true }`. Its {max: cap} constraint was replaced
+ * by the target-balance {min: 0}, so the cap vanished and the -weight
+ * coefficient on a net-CONSUMPTION row made "more sets" satisfiable by
+ * consuming more. Reproduced on the real dataset with Iron Ore at a 240/min
+ * cap; the iron-chain fixture is the same shape.
+ */
+test('maxSets: a raw target cannot make the objective unbounded', () => {
+  const r = maxSets({ dataset: ironChain, caps: capsIron(240), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'ore', weight: 1 }] });
+  assert.ok(Number.isFinite(r.sets), `sets must be finite, got ${r.sets}`);
+  assert.equal(r.sets, 0, 'nothing producible was asked for');
+  assert.deepEqual(r.perPart, [], 'and no per-part row claims a rate for it');
+});
+
+test('maxSets: a raw target alongside a real one leaves the real answer intact', () => {
+  const r = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 1 }, { itemId: 'ore', weight: 1 }] });
+  assert.ok(approx(r.sets, 15), `expected the plain max-mf answer (~15), got ${r.sets}`);
+  assert.deepEqual(r.perPart.map((p) => p.itemId), ['mf'], 'the raw target is dropped, not balanced against');
+});
+
+/**
+ * The same unbounded LP by a second route: with no targets at all, `__sets__`
+ * appears in no constraint. Live today for a Maximize session with no part
+ * picked yet, which reported "Infinity sets/min".
+ */
+test('maxSets: no targets returns a flat zero rather than an unbounded solve', () => {
+  const r = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [] });
+  assert.equal(r.feasible, true);
+  assert.equal(r.sets, 0);
+  assert.deepEqual(r.perPart, []);
+  assert.equal(r.recipeRates.size, 0);
+});
+
+/**
+ * Target-rates mode had the same constraint-clobbering hole with a different
+ * symptom: {min: d} replaced {max: cap}, so the ask was "met" by consuming raw
+ * straight through the cap and the plan reported zero shortfall.
+ */
+test('hitTargets: a raw target is reported short, never met by blowing its cap', () => {
+  const r = hitTargets({ dataset: ironChain, caps: capsIron(50), enabledRecipeIds: ALL_IRON_RECIPES, targets: { ore: 1000 } });
+  assert.equal(r.feasible, false, 'the model cannot produce a raw resource');
+  assert.equal(r.shortfalls.get('ore'), 1000);
+  assert.equal(r.recipeRates.size, 0, 'and it builds nothing to pretend otherwise');
+});

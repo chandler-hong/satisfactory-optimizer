@@ -346,7 +346,18 @@ export function buildInputs(dataset, sidebarEl) {
     for (const cb of listeners) cb();
   }
 
-  const allItems = [...dataset.items.values()].map((it) => ({ id: it.id, name: it.name, slug: it.slug }));
+  // Target pickers (both modes) offer only things you can BUILD. A raw resource
+  // is an input, not an output: you declare it in the Resources section below,
+  // where `resourceOptions` is built from exactly the complement of this filter.
+  // Offering it as a target was not merely redundant — the LP holds raw items as
+  // a net-consumption budget against a cap rather than as a producible balance,
+  // so naming one as a target deleted its cap constraint (see lp-builder.js).
+  // Maximize returned sets = Infinity; Target rates reported success while
+  // drawing straight through the cap. The engine now refuses both, so this is
+  // the "don't offer what can't work" half rather than the only line of defence.
+  const buildableItems = [...dataset.items.values()]
+    .filter((it) => !dataset.rawResourceIds.has(it.id))
+    .map((it) => ({ id: it.id, name: it.name, slug: it.slug }));
 
   // Every raw resource is offered; each row adapts its extraction inputs to
   // the resource's kind — solid ore (miner tier + purity), water (extractor
@@ -460,7 +471,7 @@ export function buildInputs(dataset, sidebarEl) {
   maxSection.appendChild(maxRowsEl);
   let maxRows = [];
   function addMaxRow() {
-    const row = makeMaxTargetRow(allItems, emitChange);
+    const row = makeMaxTargetRow(buildableItems, emitChange);
     row.removeBtn.addEventListener('click', () => {
       maxRows = maxRows.filter((r) => r !== row);
       row.el.remove();
@@ -487,7 +498,7 @@ export function buildInputs(dataset, sidebarEl) {
 
   let targetRows = [];
   function addTargetRow() {
-    const row = makeTargetRow(allItems, emitChange);
+    const row = makeTargetRow(buildableItems, emitChange);
     row.removeBtn.addEventListener('click', () => {
       targetRows = targetRows.filter((r) => r !== row);
       row.el.remove();
@@ -582,7 +593,7 @@ export function buildInputs(dataset, sidebarEl) {
     noWasteInput.checked = !!s.noWaste;
     altPicker.setEnabled(s.altEnabled || []);
     const validRes = new Set(resourceOptions.map((o) => o.id));
-    const validItem = new Set(allItems.map((o) => o.id));
+    const validItem = new Set(buildableItems.map((o) => o.id));
     for (const rs of s.resources || []) {
       if (rs && rs.resourceId && !validRes.has(rs.resourceId)) continue;
       addResourceRow(rs);

@@ -118,6 +118,15 @@ export function buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets
     constraints[i] = noWaste ? { equal: 0 } : { min: 0 };
   }
   for (const [t, d] of targetMap) {
+    // Same rule, same reason as buildMaxSetsModel above: a raw resource has no
+    // production balance to constrain, only a {max: cap} net-consumption budget.
+    // `constraints[t] = {min: d}` REPLACED that cap, and the slack variable's +1
+    // coefficient would then have counted as consumption rather than supply.
+    // Reproduced on the real dataset: "I want 1000 Iron Ore/min" under a 240/min
+    // cap came back feasible with zero shortfall and a plan drawing 1000/min —
+    // the cap silently deleted. hitTargets (optimize.js) reports the demand it
+    // could not model as a full shortfall instead of quietly claiming success.
+    if (dataset.rawResourceIds.has(t)) continue;
     constraints[t] = { min: d };
     variables[`_slack_${t}`] = { [t]: 1, [RAWCOST]: 1e6 };
   }
@@ -140,6 +149,21 @@ export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, no
   const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);
   const nVar = { [SETS]: 1, [RAWCOST]: 0 };
   for (const t of targets) {
+    // A raw resource is not a producible target in this model, so it is skipped
+    // rather than turned into a nonsense one. buildVariables gives raw items a
+    // NET-CONSUMPTION coefficient (v[item] = -net) held against the {max: cap}
+    // that rawConstraints just installed above — there is no production balance
+    // for a -w coefficient to draw against. Letting one through broke the model
+    // twice over: touchedNonRaw.add() below put the item in the {min: 0} loop at
+    // the bottom, which REPLACED {max: cap} outright (deleting the cap), and the
+    // -w coefficient then read as "more SETS requires more consumption", which
+    // is satisfied by consuming more — so SETS ran away and the solve came back
+    // unbounded (sets = Infinity, reproduced on the real dataset with a single
+    // Iron Ore max target under a 240/min cap). Skipping keeps the cap intact
+    // and leaves the objective bounded; maxSets (optimize.js) drops the same
+    // targets from `perPart` so the reported breakdown stays in step with what
+    // the LP was actually asked to do.
+    if (dataset.rawResourceIds.has(t.itemId)) continue;
     const w = t.weight > 0 ? t.weight : 1;
     nVar[t.itemId] = (nVar[t.itemId] || 0) - w;    // flow(t) - w*N >= 0
     touchedNonRaw.add(t.itemId);                   // ensure the target has a balance constraint
