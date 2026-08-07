@@ -1704,3 +1704,65 @@ test('planExpansion (max): a tiny-rate supply stays binding even tied with a sup
   assert.equal(p.maximize.bounded, true);
   assert.deepEqual(p.maximize.atLimitItems.map((x) => x.itemId).sort(), ['bulk', 'catalyst']);
 });
+
+/**
+ * The `s.rate > EPS` floor in atLimitItems' filter (js/engine/expansion.js) was
+ * the sole survivor of 16 targeted mutants -- nothing in the suite failed when
+ * it was deleted. It is not decoration.
+ *
+ * Below EPS the two sides of the exhaustion test collapse into the same bucket:
+ * `used` has already been through round6 in optimize.js, so a 1e-9/min supply
+ * reports used: 0, while `s.rate - EPS` is NEGATIVE (1e-9 - 1e-6). `0 >= -1e-6`
+ * passes vacuously, for every sub-EPS rate, whether or not the supply had
+ * anything to do with the answer. Without the floor this toy reports
+ * atLimitItems: [{ itemId: 'catalyst', rate: 0 }] -- "At their limit: Catalyst
+ * 0/min (fully used)" -- and flips `bounded` to true off the back of it, since
+ * this dataset has no raws for the RAW_CLAMP half of the test to catch.
+ *
+ * Reachable, not theoretical: js/ui/expansion.js's clampTo(MAX_RATE, ...) is a
+ * ceiling only, so any typed rate below 1e-6 arrives here intact.
+ *
+ * The second case pins the boundary the floor deliberately draws. At exactly
+ * 1e-6/min the plan IS bounded -- catalyst is non-producible and genuinely
+ * caps sets at 1e-6 -- but `s.rate > EPS` is false at the boundary, so the
+ * answer is withheld rather than reported at a rate the rounding cannot
+ * distinguish from zero. The third case is the control: one ulp of headroom
+ * past the floor and the same shape reports bounded, so the first two are
+ * about the floor and not about the toy being unbindable.
+ */
+test('planExpansion (max): a sub-EPS supply rate is not "fully consumed"', () => {
+  const dataset = {
+    rawResourceIds: new Set(),
+    recipes: [{ id: 'r', name: 'r', buildingId: 'b', alternate: false, inputs: [{ itemId: 'catalyst', perMin: 1 }], outputs: [{ itemId: 'widget', perMin: 1 }] }],
+    buildings: new Map([['b', { id: 'b', name: 'B', slug: 'b' }]]),
+    items: new Map([
+      ['catalyst', { id: 'catalyst', name: 'Catalyst', slug: 'catalyst' }],
+      ['widget', { id: 'widget', name: 'Widget', slug: 'widget' }],
+    ]),
+  };
+  const run = (rate) => planExpansion({
+    dataset,
+    rows: [
+      { kind: 'have', itemId: 'catalyst', rate },
+      { kind: 'max', itemId: 'widget', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['r']),
+    mode: 'max',
+  });
+
+  const tiny = run(1e-9);
+  assert.deepEqual(tiny.maximize.atLimitItems, [],
+    'a 1e-9/min supply rounds to used: 0 and must not clear the exhaustion test vacuously');
+  assert.equal(tiny.maximize.bounded, false,
+    'and must not carry `bounded` with it');
+
+  const atBoundary = run(1e-6);
+  assert.deepEqual(atBoundary.maximize.atLimitItems, [],
+    'the floor is a strict >, so exactly EPS is still withheld');
+  assert.equal(atBoundary.maximize.bounded, false);
+
+  const justOver = run(2e-6);
+  assert.deepEqual(justOver.maximize.atLimitItems.map((x) => x.itemId), ['catalyst'],
+    'control: just past the floor the same shape reports normally');
+  assert.equal(justOver.maximize.bounded, true);
+});
