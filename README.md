@@ -29,13 +29,24 @@ milestone, MAM research, or hard drive). Click any ingredient to jump to its own
 
 **Expansion:** planning in the other direction — instead of "what can my ore make?", start
 from the factory you already have. Declare your blocks (6× Assembler making Motors, at
-whatever clock), any flat extra demand, and whatever is already on your bus, and it works
-out the upstream: what to build to feed it, the machine totals, the net output leaving the
-factory, how much of your existing supply gets used (and whether it runs out), the raw
-rates with whole miner counts per tier and purity, belts/pipes, power, and a factory
-diagram. Tick a HUB milestone or Space Elevator phase and it checks the plan against that
-goal's cost, showing what's still uncovered and roughly how long the plan takes to fill it —
-with a one-click button to turn the gaps into demand rows.
+whatever clock) and whatever is already on your bus, then pick a mode.
+
+**Target rates** adds a flat extra demand on top of the blocks and works out the upstream:
+what to build to feed it, the machine totals, the net output leaving the factory, how much
+of your existing supply gets used (and whether it runs out), the raw rates with whole miner
+counts per tier and purity, belts/pipes, power, and a factory diagram. Tick a HUB milestone
+or Space Elevator phase and it checks the plan against that goal's cost, showing what's still
+uncovered and roughly how long the plan takes to fill it — with a one-click button to turn
+the gaps into demand rows.
+
+**Maximize** flips the question: instead of a demand rate, pick one or more parts to make as
+much of as your declared blocks and existing supply allow (weight sets the ratio between them
+when you pick more than one). The result names whatever supply is fully used and caps the
+answer — "At their limit: Motor 30/min (fully used)" — or says plainly that nothing bounds it
+yet if none of your blocks feed the target. Maximize has no flat demand to declare and no
+fixed milestone cost to check against, so the Want and Goals sections step aside for it (each
+leaves a one-line note explaining why, rather than just disappearing); Have stays available
+in both modes, as supply either one can draw from.
 
 A block is something you already have — already built and already fed — so only what it
 *makes* counts toward the plan; its own inputs never create upstream demand. The planner
