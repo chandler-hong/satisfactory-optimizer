@@ -137,6 +137,45 @@ test('computeExpansionResult: an engine throw is caught and reported as ok:false
   assert.equal(result.error?.message, 'dataset access exploded');
 });
 
+/**
+ * Task 5 post-plan review, Finding D. applyMode() (js/ui/expansion.js) only
+ * hides goalsWrap — the checkbox list's DOM node — when the mode select reads
+ * "max"; it never clears the `selected` Set backing it. That alone would just
+ * waste a computation, but recompute() renders the Goals *report card*
+ * separately, straight into resultsPane (the always-visible results pane) via
+ * renderGoals(), a target applyMode() never touches. So pre-fix, a goal
+ * checked before switching to Maximize kept being scored and its report card
+ * kept rendering in full view in the results pane, complete with a live
+ * "Add N shortfalls as WANT rows" button able to inject a row into the Want
+ * section the user could no longer see. `rows` here deliberately carries both
+ * a leftover want row and a max row at once, matching what recompute()
+ * actually assembles from readAll() across every section regardless of which
+ * wrapper is visible.
+ */
+test('computeExpansionResult: Goals is inert in max mode, matching the hidden Goals section', () => {
+  const catalog = [{ id: 'g1', kind: 'milestone', label: 'Test milestone', order: 1, cost: [{ itemId: 'rod', name: 'Rod', amount: 100 }] }];
+  const args = {
+    dataset: ironChain,
+    rows: [
+      { kind: 'want', itemId: 'rod', rate: 15 },
+      { kind: 'max', itemId: 'rod', weight: 1 },
+    ],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog,
+    goals: ['g1'],
+    fillMinutes: 10,
+  };
+
+  const targetsResult = computeExpansionResult({ ...args, mode: 'targets' });
+  assert.equal(targetsResult.ok, true);
+  assert.equal(targetsResult.goalViews.length, 1, 'sanity check: the selected goal is actually scored when mode is targets');
+
+  const maxResult = computeExpansionResult({ ...args, mode: 'max' });
+  assert.equal(maxResult.ok, true);
+  assert.deepEqual(maxResult.goalViews, [], 'Goals stays a Target-rates feature; the Goals section is hidden in max mode and must not keep scoring behind it');
+  assert.deepEqual(maxResult.shortfallRows, [], 'no shortfall-as-want-row button should have anything to inject while Goals is hidden');
+});
+
 test('sanitizeState: alts keeps known recipe id strings and nothing else', () => {
   const s = sanitizeState({ alts: ['ingot', 42, null, 'not-a-recipe', 'plate'] }, new Set(['ingot', 'plate']));
   assert.deepEqual(s.alts, ['ingot', 'plate'], 'non-strings and unknown ids are dropped');

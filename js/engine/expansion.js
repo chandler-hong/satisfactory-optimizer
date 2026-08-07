@@ -327,8 +327,45 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   const wantRows = all.filter((r) => r?.kind === 'want');
   const haveRows = all.filter((r) => r?.kind === 'have');
 
+  const maxRows = all.filter((r) => r?.kind === 'max');
+  const maxTargetsByItem = new Map();
+  for (const r of maxRows) {
+    if (typeof r?.itemId !== 'string' || !r.itemId) continue;
+    // Number(x) > 0 alone lets a literal Infinity through (Infinity > 0 is
+    // true), which the UI layer's sanitizeState already blocks on reload but
+    // this direct-from-row-read path does not go through. No ceiling here:
+    // the LP takes a weight as one more coefficient, not an allocation size
+    // (see planExpansion (max): stays bounded at a rate/SETS ratio above 1e4
+    // in test/engine/expansion.test.js, pinned at weight 100000), so this
+    // guard's job is finiteness, not magnitude.
+    const w = Number(r.weight);
+    const weight = Number.isFinite(w) && w > 0 ? w : 1;
+    // Two rows on the same item are the same target twice, not two targets —
+    // merge rather than let them ride as separate perPart entries. Undeduped,
+    // the unbounded message's `m.perPart.map(x => x.name).join(' or ')` reads
+    // "rotor or rotor" for two Rotor rows, and the bounded list shows the same
+    // item twice at two different (both individually valid, one always
+    // redundant against the LP's real constraint) rates. Summing keeps
+    // "weight sets the ratio" intuitive: two rows at weight 2 and 3 read the
+    // same as one row at weight 5.
+    maxTargetsByItem.set(r.itemId, (maxTargetsByItem.get(r.itemId) || 0) + weight);
+  }
+  const maxTargets = [...maxTargetsByItem].map(([itemId, weight]) => ({ itemId, weight }));
+  const isMax = mode === 'max' && maxTargets.length > 0;
+
   const netPinned = pinnedBalance(dataset, blockRows);
-  const { targets, supplies, rawDemand, rawSupplied, rawCredit } = splitDemand(dataset, netPinned, wantRows, haveRows);
+  // Want rows are the Target-rates section's own demand, hidden (not cleared)
+  // by js/ui/expansion.js's applyMode when the user switches to Maximize. A
+  // non-raw want row already went inert for free in that mode — `targets`
+  // below is simply never consumed, since isMax routes to maxSets instead of
+  // hitTargets a few lines down — but a RAW want row bypassed that entirely:
+  // splitDemand also folds it straight into rawDemand, which folds into
+  // rawUsage/rawNeeded with no mode check at all, so a leftover raw Want row
+  // kept inflating "Raw Needed" after switching to Maximize even though its
+  // whole section was hidden and every other want row had gone silent.
+  // Passing [] here in max mode closes both paths the same way, at the one
+  // place they both originate, instead of teaching splitDemand about mode.
+  const { targets, supplies, rawDemand, rawSupplied, rawCredit } = splitDemand(dataset, netPinned, isMax ? [] : wantRows, haveRows);
 
   // Raws are uncapped here by design — node budgeting is the Optimizer's job.
   // rawConstraints() clamps a non-finite cap to 1e9, which the LP never reaches.
@@ -337,22 +374,6 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     if (!enabledRecipeIds.has(r.id)) continue;
     for (const itemId of touched(r)) if (dataset.rawResourceIds.has(itemId)) caps.set(itemId, Infinity);
   }
-
-  const maxRows = all.filter((r) => r?.kind === 'max');
-  const maxTargets = maxRows
-    .filter((r) => typeof r?.itemId === 'string' && r.itemId)
-    .map((r) => {
-      // Number(x) > 0 alone lets a literal Infinity through (Infinity > 0 is
-      // true), which the UI layer's sanitizeState already blocks on reload but
-      // this direct-from-row-read path does not go through. No ceiling here:
-      // the LP takes a weight as one more coefficient, not an allocation size
-      // (see planExpansion (max): stays bounded at a rate/SETS ratio above 1e4
-      // in test/engine/expansion.test.js, pinned at weight 100000), so this
-      // guard's job is finiteness, not magnitude.
-      const w = Number(r.weight);
-      return { itemId: r.itemId, weight: Number.isFinite(w) && w > 0 ? w : 1 };
-    });
-  const isMax = mode === 'max' && maxTargets.length > 0;
 
   // In max mode the solver may not add to a declared line's primary output.
   const excluded = isMax ? blockOutputExclusions(dataset, blockRows) : new Set();

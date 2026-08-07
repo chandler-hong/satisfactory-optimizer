@@ -438,7 +438,20 @@ function renderMessage(target, text) {
 export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes, mode }) {
   try {
     const plan = planExpansion({ dataset, rows, enabledRecipeIds, mode });
-    const goalViews = evaluateGoals(catalog, goals, plan.netOutput, fillMinutes);
+    // Goals is a Target-rates feature — the Maximize mode note says so, and
+    // applyMode() hides goalsWrap (the checkbox list built by
+    // buildGoalsSection) when the mode select reads "max". But that only
+    // hides the input checkboxes, not the `selected` Set backing them, and
+    // recompute() renders the Goals *report card* separately, straight into
+    // resultsPane via renderGoals() — a pane applyMode() never touches. So
+    // without this gate, a goal checked before switching to Maximize kept
+    // being scored and its report card kept rendering in full view in the
+    // results pane, complete with a live "Add N shortfalls as WANT rows"
+    // button that could still inject a row into the Want section the user
+    // can no longer see. Passing [] here is enough: renderGoals returns
+    // immediately on an empty array and uncoveredToRows([]) is already a
+    // no-op.
+    const goalViews = mode === 'max' ? [] : evaluateGoals(catalog, goals, plan.netOutput, fillMinutes);
     const shortfallRows = uncoveredToRows(goalViews);
     return { ok: true, plan, goalViews, shortfallRows };
   } catch (error) {

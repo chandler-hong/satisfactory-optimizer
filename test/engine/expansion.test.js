@@ -1079,6 +1079,53 @@ test('planExpansion (max): an unrelated raw want row does not falsely unbound a 
 });
 
 /**
+ * Task 5 post-plan review, Finding C. Want rows are the Target-rates section's
+ * own demand; js/ui/expansion.js's applyMode() only hides that section's
+ * wrapper in Maximize mode, it does not clear it, so a raw want row left over
+ * from Target-rates mode used to keep feeding rawDemand -> rawUsage with no
+ * mode gate at all (a non-raw want row already went inert for free, since
+ * `targets` is simply never consumed once isMax routes to maxSets). Compares
+ * against a want-free baseline rather than asserting a literal 0, so this does
+ * not assume anything about how much ore the free rod byproduct itself draws.
+ */
+test('planExpansion (max): a raw want row is inert, matching the hidden Want section', () => {
+  const rowsWithoutWant = [
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 1 },
+  ];
+  const base = planMax(rowsWithoutWant);
+  const withWant = planMax([...rowsWithoutWant, { kind: 'want', itemId: 'ore', rate: 500 }]);
+  assert.equal(rateOf(withWant.rawUsage, 'ore'), rateOf(base.rawUsage, 'ore'),
+    'the Want section is hidden in max mode, so a leftover raw want row must not add to rawUsage/rawNeeded');
+});
+
+/**
+ * Task 5 post-plan review, Finding B. js/engine/optimize.js's maxSets() maps
+ * `targets` straight into `perPart` with no dedup by itemId, so two max rows
+ * on the same item (easy to do by accident, or by editing a saved plan) rode
+ * as two separate perPart entries with two different rates for the same item
+ * — e.g. "rotor 1.28/min" and "rotor 1.92/min" in the same headline list,
+ * rather than one row at their combined weight and the item's true 3.2/min
+ * ceiling. buildMaxSetsModel's own constraint accumulation
+ * (`nVar[t.itemId] = (nVar[t.itemId] || 0) - w`) already sums same-item
+ * weights internally, so `sets` comes back identical either way (0.64 = the
+ * 3.2 ceiling divided by the combined weight of 5) — only `perPart`'s shape
+ * differed, which is what this pins.
+ */
+test('planExpansion (max): two max rows on the same item merge into one perPart entry', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'max', itemId: 'rotor', weight: 2 },
+    { kind: 'max', itemId: 'rotor', weight: 3 },
+  ]);
+  assert.equal(p.maximize.perPart.length, 1, 'duplicate max rows on the same item must merge, not double the list');
+  assert.equal(p.maximize.perPart[0].weight, 5, 'weights sum: two rows at 2 and 3 read the same as one row at 5');
+  assert.ok(Math.abs(p.maximize.sets - 0.64) < 1e-6, `expected 3.2 ceiling / 5 combined weight = 0.64, got ${p.maximize.sets}`);
+  assert.ok(Math.abs(p.maximize.perPart[0].rate - 3.2) < 1e-6,
+    `expected weight 5 * sets 0.64 = the item's true 3.2 ceiling, got ${p.maximize.perPart[0].rate}`);
+});
+
+/**
  * Fix round 2, B2 (false positive — reopens the Critical). Same leak as B1,
  * opposite direction: a block's rawCredit (see splitDemand) is SUBTRACTED from
  * the adjusted rawUsage, so a block that credits enough of the runaway raw can
