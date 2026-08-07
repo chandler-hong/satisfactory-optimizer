@@ -270,12 +270,14 @@ export function renderGoals(wrap, goalViews, shortfallCount, onAddShortfalls) {
 }
 
 /**
- * Whether the plan has a BUILD to show. Deliberately NOT `plan.hasPlan`: that
- * flag is computed by planExpansion from pre-validation row counts (any row
- * tagged kind:'block'/'want', even one whose picker was never given a value), so
- * a row that fails validation would leave every panel below empty while
- * `hasPlan` still reported true — the empty-state message would never show.
- * This checks the validated output actually driving the panels instead.
+ * Whether the plan has a BUILD to show. Deliberately NOT a count of submitted
+ * rows: a row whose picker was never given a value, or whose recipeId has since
+ * gone stale, would leave every panel below empty while a row count still
+ * reported true — the empty-state message would never show. This checks the
+ * validated output actually driving the panels instead. (planExpansion used to
+ * return exactly such a row-count flag, `hasPlan`, which the original design
+ * meant this check to use; it was dead from the day this function replaced it
+ * and has since been removed.)
  *
  * Diagnostics are deliberately NOT part of this. They're handled separately by
  * hasDiagnostics, because they answer a different question: this one gates the

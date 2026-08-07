@@ -867,13 +867,15 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   return {
     feasible: solved.feasible,
     mode,
-    // Counts rows as SUBMITTED, before validation, so it's true for a plan whose
-    // only row has a stale recipeId and therefore produces nothing. Not the flag
-    // to branch on when deciding whether to render — expansion-render.js's
-    // hasContent() checks the validated output arrays instead, and deliberately
-    // ignores this. Kept because it's a cheap "did the user type anything at
-    // all" signal, distinct from "did it yield a plan".
-    hasPlan: blockRows.length > 0 || wantRows.length > 0,
+    // No `hasPlan` here. It used to be `blockRows.length > 0 || wantRows.length
+    // > 0` — a pre-validation "did the user type anything at all" flag — and it
+    // was deleted rather than corrected. It had gone stale twice over (a
+    // max-only plan reported false while producing real build rows, and so did
+    // a have-only one), it had no production consumer (the renderer that the
+    // original design meant to gate on it uses hasContent() instead, and says
+    // why), and a correct version would restate `rows`, which every caller
+    // already holds. Nothing keeps a consumer-less restatement of an argument
+    // honest, which is exactly how it drifted.
     tiles: {
       machines: phys.totalMachines,
       powerMW: Math.round(phys.totalPowerMW * 10) / 10,

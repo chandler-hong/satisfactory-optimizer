@@ -405,7 +405,12 @@ test('planExpansion: no rows yields an empty, feasible plan', () => {
   const p = plan([]);
   assert.equal(p.tiles.machines, 0);
   assert.deepEqual(p.buildRows, []);
-  assert.equal(p.hasPlan, false);
+  // Was `assert.equal(p.hasPlan, false)` until hasPlan was deleted as dead (see
+  // the note where it used to be built). `feasible` is what the test name has
+  // always claimed and never checked: nothing to solve is a success, not a
+  // failure, and the renderer's diagnostics path keys off the opposite.
+  assert.equal(p.feasible, true);
+  assert.deepEqual(p.netOutputRows, []);
 });
 
 test('planExpansion: no rows yields empty recipeRates and machinesById maps', () => {
