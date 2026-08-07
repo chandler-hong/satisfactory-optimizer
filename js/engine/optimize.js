@@ -1,4 +1,4 @@
-import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel, supplyVarName } from './lp-builder.js';
+import { buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel, supplyVarName } from './lp-builder.js';
 import { solveModel } from './solver.js';
 
 // `eps` drops solver dust from a rate map meant for DISPLAY. Pass 0 when the
@@ -51,17 +51,6 @@ function bindingResources(dataset, caps, recipeRates) {
     if (cap > 0 && (usage.get(res) || 0) >= cap - 1e-6) binding.push(res);
   }
   return binding;
-}
-
-/** Maximize one target item's output. Two-pass lexicographic (max, then min raw). */
-export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWaste = false }) {
-  const args = { dataset, caps, enabledRecipeIds, targetItemId, noWaste };
-  const r1 = solveModel(buildMaxModel(args));
-  if (!r1.feasible) return { feasible: false, maxRate: 0, recipeRates: new Map() };
-  const maxRate = r1.objective;
-  const r2 = solveModel(buildMinRawModel(args, maxRate));
-  const chosen = r2.feasible ? r2 : r1;
-  return { feasible: true, maxRate, recipeRates: ratesFrom(chosen.values, enabledRecipeIds) };
 }
 
 /**

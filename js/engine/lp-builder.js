@@ -1,6 +1,5 @@
 import { netPerMin } from '../domain/model.js';
 
-export const OBJ = '_objective_';
 export const RAWCOST = '_rawcost_';
 
 // Cost of drawing one unit from an already-on-hand supply. Both are strictly
@@ -85,28 +84,6 @@ function rawConstraints(touchedRaw, caps) {
     c[res] = { max: Number.isFinite(cap) ? cap : RAW_CLAMP };
   }
   return c;
-}
-
-export function buildMaxModel({ dataset, caps, enabledRecipeIds, targetItemId, noWaste = false }) {
-  const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);
-  for (const id of Object.keys(variables)) {
-    const r = dataset.recipes.find((x) => x.id === id);
-    variables[id][OBJ] = netPerMin(r, targetItemId);
-  }
-  const constraints = rawConstraints(touchedRaw, caps);
-  for (const i of touchedNonRaw) {
-    if (i === targetItemId) continue;            // target is the objective, not a constraint
-    constraints[i] = noWaste ? { equal: 0 } : { min: 0 };
-  }
-  return { optimize: OBJ, opType: 'max', constraints, variables };
-}
-
-export function buildMinRawModel(args, minTarget) {
-  const model = buildMaxModel(args);
-  model.constraints[OBJ] = { min: minTarget - Math.abs(minTarget) * 1e-9 - 1e-9 };
-  model.optimize = RAWCOST;
-  model.opType = 'min';
-  return model;
 }
 
 export function buildTargetRatesModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {

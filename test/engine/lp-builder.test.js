@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMaxModel, buildMinRawModel, buildTargetRatesModel, buildMaxSetsModel, supplyVarName, OBJ, RAWCOST, SETS } from '../../js/engine/lp-builder.js';
+import { buildTargetRatesModel, buildMaxSetsModel, buildMinRawForSetsModel, supplyVarName, RAWCOST, SETS } from '../../js/engine/lp-builder.js';
 import { ironChain, ALL_IRON_RECIPES, capsIron } from '../fixtures/iron-chain.js';
 
 // tiny synthetic dataset: ore(raw) -> ingot -> plate
@@ -15,37 +15,47 @@ const dataset = {
 const ALL = new Set(['ingot', 'plate']);
 const caps = new Map([['ore', 60]]);
 
-test('buildMaxModel: raw uses net-consumption coef + {max}, non-raw uses netPerMin + {min:0}, target excluded from constraints', () => {
-  const m = buildMaxModel({ dataset, caps, enabledRecipeIds: ALL, targetItemId: 'plate' });
-  assert.equal(m.optimize, OBJ);
-  assert.equal(m.opType, 'max');
+// buildVariables + rawConstraints are shared by every builder, so this pins the
+// coefficient conventions once, through buildTargetRatesModel. The sign flip on
+// raw items is the load-bearing part: a raw row holds NET CONSUMPTION against
+// {max: cap}, a non-raw row holds NET PRODUCTION against a {min: 0} balance, and
+// several comments in lp-builder.js and expansion.js reason from exactly that.
+test('shared model shape: raw uses net-consumption coef + {max: cap}, non-raw uses netPerMin + {min: 0}', () => {
+  const m = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 } });
   // raw constraint
   assert.deepEqual(m.constraints.ore, { max: 60 });
   // intermediate balance
   assert.deepEqual(m.constraints.ingot, { min: 0 });
-  // target (plate) is the objective, NOT a constraint
-  assert.equal(m.constraints.plate, undefined);
   // ingot variable: consumes 30 ore (raw coef = input-output = 30), produces 30 ingot (net)
   assert.equal(m.variables.ingot.ore, 30);
   assert.equal(m.variables.ingot.ingot, 30);
   assert.equal(m.variables.ingot[RAWCOST], 30);
-  assert.equal(m.variables.ingot[OBJ], 0);       // ingot recipe makes no plate
-  // plate variable: consumes 30 ingot (net -30), makes 20 plate; objective coef = 20
+  // plate variable: consumes 30 ingot (net -30), makes 20 plate
   assert.equal(m.variables.plate.ingot, -30);
-  assert.equal(m.variables.plate[OBJ], 20);
+  assert.equal(m.variables.plate.plate, 20);
   assert.equal(m.variables.plate[RAWCOST], 0);   // consumes no raw directly
 });
 
-test('buildMaxModel: noWaste turns intermediate balance into {equal:0}', () => {
-  const m = buildMaxModel({ dataset, caps, enabledRecipeIds: ALL, targetItemId: 'plate', noWaste: true });
-  assert.deepEqual(m.constraints.ingot, { equal: 0 });
+// `noWaste` is a live user-facing toggle ("No waste", js/ui/inputs.js) that
+// reaches both surviving builders through hitTargets and maxSets, so both need
+// to turn the intermediate balance into a hard equality.
+test('noWaste turns an intermediate balance into {equal: 0} in both builders', () => {
+  const rates = buildTargetRatesModel({ dataset, caps, enabledRecipeIds: ALL, targets: { plate: 10 }, noWaste: true });
+  assert.deepEqual(rates.constraints.ingot, { equal: 0 });
+  const sets = buildMaxSetsModel({ dataset, caps, enabledRecipeIds: ALL, targets: [{ itemId: 'plate', weight: 1 }], noWaste: true });
+  assert.deepEqual(sets.constraints.ingot, { equal: 0 });
 });
 
-test('buildMinRawModel: minimizes rawcost with target lower-bounded', () => {
-  const m = buildMinRawModel({ dataset, caps, enabledRecipeIds: ALL, targetItemId: 'plate' }, 20);
+// Pass 2 of the two-pass lexicographic solve: re-solve for minimum raw with the
+// pass-1 optimum pinned as a floor, relaxed by `|x|*1e-9 + 1e-9` so floating
+// point cannot make the pinned constraint infeasible. That give is exactly what
+// bindingResources and supplyAtMax (optimize.js) must NOT be read against, so
+// its shape is worth pinning directly rather than only in prose.
+test('buildMinRawForSetsModel: minimizes rawcost with SETS lower-bounded at the pass-1 optimum', () => {
+  const m = buildMinRawForSetsModel({ dataset, caps, enabledRecipeIds: ALL, targets: [{ itemId: 'plate', weight: 1 }] }, 20);
   assert.equal(m.optimize, RAWCOST);
   assert.equal(m.opType, 'min');
-  assert.ok(m.constraints[OBJ].min <= 20 && m.constraints[OBJ].min > 19.9); // >= ~20 with tiny relax
+  assert.ok(m.constraints[SETS].min <= 20 && m.constraints[SETS].min > 19.9); // >= ~20 with tiny relax
 });
 
 test('buildTargetRatesModel: adds slack var + target min-constraint, minimizes rawcost', () => {

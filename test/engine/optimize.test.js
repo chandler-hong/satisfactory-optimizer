@@ -1,27 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { maxOutput, hitTargets, maxSets } from '../../js/engine/optimize.js';
+import { hitTargets, maxSets } from '../../js/engine/optimize.js';
 import { ironChain, ALL_IRON_RECIPES, capsIron } from '../fixtures/iron-chain.js';
 
 const approx = (a, b, e = 1e-5) => Math.abs(a - b) <= e;
 
-test('maxOutput: 360 iron -> 15 Modular Frames/min', () => {
-  const r = maxOutput({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targetItemId: 'mf' });
+// A degenerate-but-satisfiable LP: every raw cap is 0, so the only feasible
+// point is the all-zero one. That must come back feasible with sets 0, NOT
+// infeasible — the UI distinguishes "you have no resources" from "this cannot
+// be planned".
+test('maxSets: zero caps -> feasible with zero output', () => {
+  const r = maxSets({ dataset: ironChain, caps: capsIron(0), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 1 }] });
   assert.equal(r.feasible, true);
-  assert.ok(approx(r.maxRate, 15), `expected ~15, got ${r.maxRate}`);
-  // the mf recipe makes 2/machine, so 7.5 machines -> 15/min
-  assert.ok(approx(r.recipeRates.get('mf'), 7.5), `mf machines ${r.recipeRates.get('mf')}`);
-});
-
-test('maxOutput: 360 iron -> 32 Rotors/min', () => {
-  const r = maxOutput({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targetItemId: 'rotor' });
-  assert.equal(r.feasible, true);
-  assert.ok(approx(r.maxRate, 32), `expected ~32, got ${r.maxRate}`);
-});
-
-test('maxOutput: zero caps -> feasible with zero output', () => {
-  const r = maxOutput({ dataset: ironChain, caps: capsIron(0), enabledRecipeIds: ALL_IRON_RECIPES, targetItemId: 'mf' });
-  assert.ok(approx(r.maxRate, 0));
+  assert.ok(approx(r.sets, 0), `expected ~0, got ${r.sets}`);
 });
 
 test('hitTargets: {16 rotor, 7.5 mf} feasible at 360 iron, no shortfall', () => {
@@ -37,11 +28,15 @@ test('hitTargets: same targets infeasible at 359 iron, reports Modular Frame sho
   assert.ok(r.shortfalls.get('mf') > 0, 'expected a Modular Frame shortfall');
 });
 
-test('maxSets: single target (weight 1) matches maxOutput (15 Modular Frames)', () => {
+// A single weight-1 target reduces to plain "maximize this one part", so this
+// is the iron-chain ground truth for the whole max path: 360 ore -> 15 mf/min.
+test('maxSets: single target (weight 1) maximizes that one part (15 Modular Frames)', () => {
   const r = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 1 }] });
   assert.equal(r.feasible, true);
   assert.ok(approx(r.sets, 15), `expected ~15 sets, got ${r.sets}`);
   assert.ok(approx(r.perPart[0].rate, 15));
+  // the mf recipe makes 2/machine, so 7.5 machines -> 15/min
+  assert.ok(approx(r.recipeRates.get('mf'), 7.5), `mf machines ${r.recipeRates.get('mf')}`);
 });
 
 test('maxSets: balanced {mf, rotor} maximizes matched sets from 360 iron', () => {
@@ -403,7 +398,9 @@ test('maxSets: a cap the plan cannot exhaust is not reported as binding', () => 
 test('maxSets: two rows on the same item read as one target at the full rate', () => {
   const one = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'rotor', weight: 1 }] });
   const two = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'rotor', weight: 1 }, { itemId: 'rotor', weight: 1 }] });
-  assert.ok(approx(one.sets, 32), `test setup check: expected ~32, got ${one.sets}`);
+  // Also the iron-chain ground truth for the second max target: 360 ore -> 32 rotor/min.
+  assert.equal(one.feasible, true);
+  assert.ok(approx(one.sets, 32), `expected ~32 rotor/min from 360 ore, got ${one.sets}`);
   assert.equal(two.perPart.length, 1, 'one item, one per-part row');
   assert.ok(approx(two.perPart[0].rate, one.perPart[0].rate),
     `duplicating a row must not halve the reported rate: ${two.perPart[0].rate} vs ${one.perPart[0].rate}`);
