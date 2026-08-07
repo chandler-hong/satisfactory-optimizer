@@ -41,12 +41,12 @@ the gaps into demand rows.
 
 **Maximize** flips the question: instead of a demand rate, pick one or more parts to make as
 much of as your declared blocks and existing supply allow (weight sets the ratio between them
-when you pick more than one). The result names whatever supply is fully used and caps the
-answer — "At their limit: Motor 30/min (fully used)" — or says plainly that nothing bounds it
-yet if none of your blocks feed the target. Maximize has no flat demand to declare and no
-fixed milestone cost to check against, so the Want and Goals sections step aside for it (each
-leaves a one-line note explaining why, rather than just disappearing); Have stays available
-in both modes, as supply either one can draw from.
+when you pick more than one). The result names whatever supply is fully used — "At their
+limit: Motor 30/min (fully used)" — or says plainly that nothing bounds it yet if none of your
+blocks feed the target. Maximize has no flat demand to declare and no fixed milestone cost to
+check against, so the Want and Goals sections step aside for it (each leaves a one-line note
+explaining why, rather than just disappearing); Have stays available in both modes, as supply
+either one can draw from.
 
 A block is something you already have — already built and already fed — so only what it
 *makes* counts toward the plan; its own inputs never create upstream demand. The planner
