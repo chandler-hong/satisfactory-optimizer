@@ -56,6 +56,15 @@ in total, including ×5 Rotor machines — Smart Plating, further up the Modular
 chain, still needs Rotors of its own, on top of whatever the Motor line already covers
 internally.
 
+That last part is a change in what a block *means*, and it reaches back into saved plans.
+A block used to have its own feedstock planned upstream as well; now it never does. The
+storage key was deliberately left unbumped — every row you declared is still a valid
+declaration and throwing them away would be worse — so an older saved plan loads intact
+and silently answers differently: the very rows in the example above used to report 1410
+iron ore/min, 267 machines and ×20 Rotor, and now report 465, 97 and ×5. Nothing is lost
+or corrupted and nothing warns you on load; the numbers just move. If a returning plan
+looks smaller than you remember, that's why.
+
 The Expansion view has its own alternate-recipe picker, starting with all of them off, so it
 won't prescribe a recipe you haven't unlocked. It's independent of the Optimizer's picker —
 the two views can hold different sets, which is useful for testing a hypothesis in one
