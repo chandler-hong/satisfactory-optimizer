@@ -1,6 +1,12 @@
 /**
  * Expansion planner: you declare machine blocks you already have plus whatever
- * is already on your bus, and this works out what has to feed them.
+ * is already on your bus, and this works out what you still have to build —
+ * or, in max mode, how much of a part those declarations can make.
+ *
+ * Not what feeds the blocks. A block is always already built and already fed,
+ * so only what it *makes* counts; its own inputs never create upstream demand
+ * (5a6d19e retired the earlier "works out what has to feed them" pitch along
+ * with the Built/To-build choice it belonged to).
  *
  * The Factory Optimizer solves the other direction — given ore nodes, maximize
  * output — which forces you to model the whole factory from ore up every time you

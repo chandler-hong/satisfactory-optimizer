@@ -1,6 +1,8 @@
 /**
- * Expansion view: declare the machine blocks you already have and whatever
- * is already on your bus, and see what has to feed them.
+ * Expansion view: declare the machine blocks you already have and whatever is
+ * already on your bus, and see what you still have to build — not what feeds
+ * them. A block is always already built and already fed, so only what it makes
+ * counts toward the plan; its own inputs never create upstream demand.
  *
  * DOM only — all arithmetic lives in js/engine/expansion.js. The eight report
  * panels are built by expansion-render.js, split out once this file crossed the
