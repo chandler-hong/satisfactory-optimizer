@@ -175,7 +175,9 @@ function renderDiagramPanel(dataset, plan) {
 
 /**
  * The maximize headline. An unexplained maximum isn't actionable, so it names
- * what bound the answer — and when nothing did, it refuses to print a rate at
+ * whatever supply is fully consumed (see the "At their limit" comment below
+ * for why "fully consumed," not "caused" or "bound by," is the claim this
+ * makes) — and when nothing is bounded at all, it refuses to print a rate at
  * all rather than showing a number the raw clamp invented.
  */
 function renderMaximizePanel(m) {

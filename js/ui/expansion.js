@@ -589,6 +589,15 @@ export function buildExpansion(dataset, container) {
     (initial, onChange) => makeRateRow('want', itemOpts, initial, onChange),
     scheduleRecompute,
   );
+  // Task 5 post-plan review round 2, Important (README.md's Maximize
+  // paragraph). Mirrors goalsNote below: Want has no flat rate to declare in
+  // Maximize mode, so rather than the section just vanishing with nothing
+  // left in its place, this one-line note stands in the gap and says why —
+  // matching Goals' own treatment instead of being the one hidden section
+  // that silently disappears.
+  const wantNote = el('p', 'hint');
+  wantNote.textContent = 'Want adds a flat demand rate, so it applies in Target rates mode.';
+  rowsPane.appendChild(wantNote);
   const maxWrap = el('div');
   rowsPane.appendChild(maxWrap);
   const maxSection = buildRowSection(
@@ -627,6 +636,7 @@ export function buildExpansion(dataset, container) {
   function applyMode() {
     const isMax = modeSelect.value === 'max';
     wantWrap.hidden = isMax;
+    wantNote.hidden = !isMax;
     maxWrap.hidden = !isMax;
     goalsWrap.hidden = isMax;
     goalsNote.hidden = !isMax;

@@ -351,7 +351,22 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     maxTargetsByItem.set(r.itemId, (maxTargetsByItem.get(r.itemId) || 0) + weight);
   }
   const maxTargets = [...maxTargetsByItem].map(([itemId, weight]) => ({ itemId, weight }));
-  const isMax = mode === 'max' && maxTargets.length > 0;
+  // Critical, Task 5 post-plan review round 2 (numbered independently of the
+  // "Fix round N" sequence elsewhere in this file, which is Task 3's own
+  // history and unrelated to this bug): gate on the MODE alone, not "mode is
+  // max AND a target is chosen." The old `mode === 'max' && maxTargets.length > 0`
+  // read false the instant the select switched to Maximize but before the
+  // user picked an item — so every guard hung off isMax (the Want
+  // suppression below, the block-output exclusion, and which solver runs)
+  // fell back to Target-rates behaviour: a leftover Want row stayed live,
+  // nothing got excluded, and `targets.size > 0` a few lines down sent that
+  // demand straight through hitTargets — a full, silent target-rates solve
+  // running behind a screen with no Want section showing. isMax now means
+  // only "the mode select reads Maximize"; the separate question, "is there
+  // a target to actually maximize," is asked explicitly at each of the two
+  // spots that need it (the solve branch below, and the `maximize` result
+  // further down) instead of being folded into this one flag.
+  const isMax = mode === 'max';
 
   const netPinned = pinnedBalance(dataset, blockRows);
   // Want rows are the Target-rates section's own demand, hidden (not cleared)
@@ -383,7 +398,24 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
 
   let solved;
   if (isMax) {
-    solved = maxSets({ dataset, caps, enabledRecipeIds: solveEnabled, targets: maxTargets, supplies });
+    // No target chosen yet: skip maxSets rather than call it with an empty
+    // targets array. buildMaxSetsModel (lp-builder.js) shapes its objective
+    // and per-target constraints directly from `targets`, so an empty array
+    // is untested, undocumented territory for that LP model — the correct
+    // "nothing to maximize yet" answer is this flat zero shape (the same
+    // shape maxSets itself returns on its own infeasible path — see
+    // optimize.js), not whatever a degenerate model happens to solve to.
+    solved = maxTargets.length > 0
+      ? maxSets({ dataset, caps, enabledRecipeIds: solveEnabled, targets: maxTargets, supplies })
+      : {
+        feasible: true,
+        sets: 0,
+        recipeRates: new Map(),
+        perPart: [],
+        bindingResources: [],
+        supplyDrawn: supplies.map((s) => ({ itemId: s.itemId, kind: s.kind, used: 0 })),
+        supplyAtMax: supplies.map((s) => ({ itemId: s.itemId, kind: s.kind, used: 0 })),
+      };
   } else if (targets.size > 0) {
     solved = hitTargets({ dataset, caps, enabledRecipeIds, targets, supplies });
   } else {
@@ -626,7 +658,23 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   // for solved.bindingResources instead — planExpansion's raw caps are all
   // Infinity, so that comparison is always against Infinity and
   // bindingResources is therefore always empty.
-  const maximize = !isMax ? undefined : (() => {
+  // Critical, Task 5 post-plan review round 2 (continued — see the isMax
+  // comment above): mirror the same "mode alone, not mode
+  // AND a target" gate on the read side. Previously this whole block was
+  // skipped whenever maxTargets was empty (the old isMax folded that
+  // condition in), so switching to Maximize with nothing picked yet produced
+  // `maximize: undefined` — no signal for renderPlan/renderMaximizePanel to
+  // act on, so whatever the (buggy) target-rates solve above produced
+  // rendered instead. Emitting the same shape maxSets reports for "nothing
+  // bounds this yet" (bounded:false, perPart:[]) both closes that gap and
+  // makes renderMaximizePanel's `perPart.length === 0` branch — dead code
+  // until now, since a non-empty maxTargets always implied a non-empty
+  // perPart — finally reachable.
+  const maximize = !isMax
+    ? undefined
+    : maxTargets.length === 0
+      ? { sets: 0, perPart: [], atLimitItems: [], bounded: false }
+      : (() => {
     const atMax = solved.supplyAtMax || [];
     // Fix round 3, Important: hasEnabledProducer must ask "can this item
     // actually be produced" (reachable from raw resources through enabled

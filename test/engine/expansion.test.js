@@ -1126,6 +1126,59 @@ test('planExpansion (max): two max rows on the same item merge into one perPart 
 });
 
 /**
+ * Critical, Task 5 post-plan review round 2 (see the isMax comment in
+ * planExpansion for the full root cause). The old isMax read
+ * `mode === 'max' && maxTargets.length > 0` — false the instant Maximize is
+ * selected but before any part is picked, since maxTargets is empty then.
+ * Every guard hanging off that one flag (Want suppression, block-output
+ * exclusion, which solver runs) fell back to Target-rates behaviour: a
+ * leftover Want row — left live, not cleared, by js/ui/expansion.js's
+ * applyMode when the mode select switches to Maximize — stayed a real
+ * target, and `targets.size > 0` a few lines down routed it straight through
+ * hitTargets: a full, silent target-rates solve for whatever the Want row
+ * asked for, with no Want section on screen to explain the resulting numbers.
+ * The Finding-C test above already pins Want suppression in max mode, but
+ * every one of its fixtures seeds a `max` row, so maxTargets.length > 0
+ * there even under the OLD formula — none of them ever exercised the
+ * specific empty-maxTargets gap this pins: no `max` row at all.
+ */
+test('planExpansion (max): with no target picked yet, a leftover Want row does not drive a hidden solve', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'want', itemId: 'rotor', rate: 500 },
+  ]);
+  assert.equal(p.mode, 'max');
+  assert.deepEqual(p.maximize, { sets: 0, perPart: [], atLimitItems: [], bounded: false },
+    'nothing picked yet must report the flat "nothing to maximize" shape — not undefined (unreadable by ' +
+    'renderMaximizePanel) and not a number the hidden solve below would have invented');
+  assert.equal(p.tiles.machines, 0,
+    'a leftover want row must not drive a hidden target-rates build-out just because no max target is picked yet');
+  assert.equal(machinesOf(p, 'rotor'), 0, 'rotor must not be built from a want row when no max target is picked');
+  assert.equal(machinesOf(p, 'rod'), 0, "nor any part of rotor's own upstream chain");
+});
+
+/**
+ * Same root cause, the other leak every Finding-C fixture also happened to
+ * miss. A raw want row bypasses targets/hitTargets entirely and folds
+ * straight into rawDemand -> rawUsage (splitDemand), gated by the very same
+ * isMax at that call site — so this is inert for the same reason the test
+ * above is, just visible through rawUsage instead of a phantom build-out.
+ * Asserted as a direct 0 rather than a want-free-baseline diff: nothing is
+ * LP-solved at all in the empty-maxTargets state (recipeRates is an empty
+ * Map — see the isMax comment in expansion.js), so a nonzero 'ore' figure
+ * here could only come from this exact leak.
+ */
+test('planExpansion (max): with no target picked yet, a leftover raw Want row is still inert', () => {
+  const p = planMax([
+    { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+    { kind: 'want', itemId: 'ore', rate: 500 },
+  ]);
+  assert.equal(p.maximize.bounded, false);
+  assert.equal(rateOf(p.rawUsage, 'ore'), 0,
+    'a leftover raw want row must not inflate rawUsage/rawNeeded just because no max target is picked yet');
+});
+
+/**
  * Fix round 2, B2 (false positive — reopens the Critical). Same leak as B1,
  * opposite direction: a block's rawCredit (see splitDemand) is SUBTRACTED from
  * the adjusted rawUsage, so a block that credits enough of the runaway raw can
@@ -1205,11 +1258,12 @@ test('planExpansion: mode defaults to targets, so every existing caller is unaff
 
 /**
  * Fix round 1, Important 5. The test above only ever calls plan() with a block
- * row and no max row, so isMax (mode === 'max' && maxTargets.length > 0) is
- * false there no matter what the mode default is — it cannot by itself catch a
- * flipped default. This uses plan() (not planMax(), which hardcodes mode:
- * 'max') with a max-kind row present and mode omitted, so a flipped default
- * would both report mode: 'max' AND turn on a real maximize readout.
+ * row and no max row, so isMax (mode === 'max' — see the isMax comment in
+ * planExpansion for how this gate is defined) is false there no matter what
+ * the mode default is — it cannot by itself catch a flipped default. This
+ * uses plan() (not planMax(), which hardcodes mode: 'max') with a max-kind
+ * row present and mode omitted, so a flipped default would both report mode:
+ * 'max' AND turn on a real maximize readout.
  */
 test('planExpansion: a max row is inert unless mode is explicitly "max"', () => {
   const rows = [

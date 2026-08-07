@@ -1371,9 +1371,13 @@ button.codex-io:focus-visible {
   overflow-x: auto;
 }
 
-/* Rows pane: flat h3 section headings (Blocks / Want / Have), matching
-   .sidebar h3's labelled-divider treatment. */
-.exp-rows > h3 {
+/* Rows pane: flat h3 section headings (Blocks / Want / Maximize / Have /
+   Goals), matching .sidebar h3's labelled-divider treatment. Descendant, not
+   child, selector: Blocks and Have are direct children of .exp-rows, but
+   Want/Maximize/Goals are each wrapped in a mode-toggle <div> (js/ui/expansion.js's
+   wantWrap/maxWrap/goalsWrap) so their h3 is a grandchild — a `>` combinator
+   here silently dropped those three back to an unstyled default <h3>. */
+.exp-rows h3 {
   margin: 1.5rem 0 0.75rem;
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--border);
@@ -1384,6 +1388,8 @@ button.codex-io:focus-visible {
   color: var(--ink-muted);
 }
 
+/* Still a direct-child match: Blocks' own h3 (unwrapped, built first) is the
+   only true first child of .exp-rows, so this correctly reaches only it. */
 .exp-rows > h3:first-child { margin-top: 0.25rem; }
 
 /* Results pane: renderPlan's panel() wraps each report section in a bare
