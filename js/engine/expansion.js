@@ -640,16 +640,45 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
     amount: Math.round(amount * 100) / 100, fluid: fluidOf(dataset, itemId),
   }));
 
-  // "No recipe path" diagnostic only (see requirements.js: analyzeRequirements's
-  // `allFired` closure is always seeded from dataset.rawResourceIds internally).
-  // Passing that same set as both availableRawIds and userAddedRawIds makes
-  // availClosure identical to allFired's closure, which collapses the
+  // "No recipe path" diagnostic only. Passing dataset.rawResourceIds as both
+  // availableRawIds and userAddedRawIds makes analyzeRequirements' availability
+  // closure identical to its everything-available baseline, which collapses the
   // 'missing'/'partial'/'wrong-resources' branches to unreachable — correct here
   // because Expansion Mode has no raw-scarcity concept; every raw is uncapped
   // (see the `caps` construction above).
-  const analysis = analyzeRequirements(dataset, enabledRecipeIds, dataset.rawResourceIds, dataset.rawResourceIds, [...targets.keys()]);
+  //
+  // Three things this has to get right, none of which are the obvious reading:
+  //
+  // 1. TARGETS. Max mode has no `targets` map at all — Want rows are suppressed
+  //    a few dozen lines up, and pinnedBalance can't emit a deficit — so
+  //    `[...targets.keys()]` is unconditionally empty there and the whole panel
+  //    was dead in that mode: perTarget [], anyImpossible/anyMissing false, and
+  //    someone maximizing an unreachable item got a bare 0 with no explanation.
+  //    The Maximize rows are the targets in that mode, already merged by item.
+  //
+  // 2. RECIPES. `solveEnabled`, not `enabledRecipeIds` — the post-exclusion set
+  //    the solver actually gets. A diagnostic that reasons about recipes the
+  //    solve cannot use will cheerfully report 'ok' over a plan that came back
+  //    with sets: 0 (blockOutputExclusions' documented "silent zero"), and a
+  //    diagnostic that contradicts the plan next to it is worse than none. In
+  //    targets mode `excluded` is empty, so this is the same set as before.
+  //
+  // 3. SEEDS. Declared blocks and bus supply are producible with no recipe path
+  //    at all, and a raws-only closure doesn't know that. It matters most in
+  //    exactly the mode being switched on here: max mode excludes every producer
+  //    of a block's primary output, so with a Screw block declared nothing
+  //    enabled makes screws and every screw consumer would be branded impossible
+  //    — a red "can't build" over a plan that is completely fine. `supplies`
+  //    covers both sources (block gross output as 'pinned', bus rows as 'have');
+  //    raw supply is already covered by seeding every raw.
+  const diagnosticTargets = isMax ? maxTargets.map((t) => t.itemId) : [...targets.keys()];
+  const analysis = analyzeRequirements(
+    dataset, solveEnabled, dataset.rawResourceIds, dataset.rawResourceIds,
+    diagnosticTargets, supplies.map((s) => s.itemId),
+  );
   const shapeDep = (d) => ({ itemId: d.itemId, name: nameOf(dataset, d.itemId), slug: slugOf(dataset, d.itemId), added: d.added, fluid: fluidOf(dataset, d.itemId) });
-  const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep) });
+  const shapeItem = (itemId) => ({ itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), fluid: fluidOf(dataset, itemId) });
+  const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep), blockedItems: t.blockedItems.map(shapeItem) });
   const requirements = {
     hasIssues: analysis.anyImpossible || analysis.anyMissing,
     impossible: analysis.perTarget.filter((t) => t.status === 'impossible').map(shapeTarget),

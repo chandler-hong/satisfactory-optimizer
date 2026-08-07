@@ -295,10 +295,10 @@ export function hasContent(plan) {
 }
 
 /**
- * Whether the plan has something to explain: a want row for an item with no
- * enabled recipe (requirements) or one the LP couldn't fully satisfy
- * (shortfalls). Either produces zero build rows, so without this the plan would
- * fail silently behind the "add a block" hint.
+ * Whether the plan has something to explain: a want row — or, in Maximize mode,
+ * a max row — for an item with no enabled recipe (requirements), or one the LP
+ * couldn't fully satisfy (shortfalls). Either produces zero build rows, so
+ * without this the plan would fail silently behind the "add a block" hint.
  */
 export function hasDiagnostics(plan) {
   return Boolean((plan.requirements && plan.requirements.hasIssues)

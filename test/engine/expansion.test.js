@@ -1771,3 +1771,65 @@ test('planExpansion (max): a sub-EPS supply rate is not "fully consumed"', () =>
     'control: just past the floor the same shape reports normally');
   assert.equal(justOver.maximize.bounded, true);
 });
+
+// --- Requirements diagnostics in Maximize mode ------------------------------
+// Max mode suppresses Want rows on purpose (see planExpansion), so `targets` is
+// always empty there and the diagnostic used to run over an empty target list:
+// perTarget: [], anyImpossible/anyMissing false, panel dead. Someone maximizing
+// an unreachable item got a bare 0 and no explanation at all.
+
+test('planExpansion: max mode reports an unreachable max target in requirements', () => {
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [{ kind: 'max', itemId: 'plate', weight: 1 }],
+    enabledRecipeIds: new Set(['ingot']),
+    mode: 'max',
+  });
+  assert.equal(p.requirements.hasIssues, true);
+  assert.deepEqual(
+    p.requirements.impossible.map((t) => ({ itemId: t.itemId, reason: t.reason })),
+    [{ itemId: 'plate', reason: 'no-recipe' }],
+  );
+  assert.deepEqual(p.requirements.missing, [], 'Expansion has no raw-scarcity concept');
+});
+
+test('planExpansion: max mode merges duplicate max rows into one diagnostic target', () => {
+  // Same dedupe the maximize readout does — two rows on one item are one target.
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [{ kind: 'max', itemId: 'plate', weight: 1 }, { kind: 'max', itemId: 'plate', weight: 2 }],
+    enabledRecipeIds: new Set(['ingot']),
+    mode: 'max',
+  });
+  assert.deepEqual(p.requirements.impossible.map((t) => t.itemId), ['plate']);
+});
+
+test('planExpansion: max mode does not call a block-supplied item impossible', () => {
+  // The reason turning this diagnostic on needs supply seeding. Max mode hands
+  // the solver `solveEnabled`, which excludes every producer of a block's
+  // primary output — so with a screw block declared, NO enabled recipe makes
+  // screws, and a raws-only reachability closure would call rotor unreachable
+  // and paint a red "can't build" over a plan that is completely fine.
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [
+      { kind: 'block', recipeId: 'screw', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'rotor', weight: 1 },
+    ],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    mode: 'max',
+  });
+  assert.equal(p.requirements.hasIssues, false);
+  assert.equal(p.maximize.bounded, true, 'sanity: the block really is the binding supply');
+  assert.ok(p.maximize.sets > 0, 'sanity: the plan really does produce something');
+});
+
+test('planExpansion: max mode with no max row yet has nothing to diagnose', () => {
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [{ kind: 'block', recipeId: 'screw', machines: 1, clock: 1 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    mode: 'max',
+  });
+  assert.equal(p.requirements.hasIssues, false);
+});
