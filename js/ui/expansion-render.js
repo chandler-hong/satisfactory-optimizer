@@ -329,7 +329,10 @@ export function renderPlan(wrap, dataset, plan) {
     // diagnostic it would talk over the actual explanation.
     if (!hasDiagnostics(plan)) {
       const p = el('p', 'hint');
-      p.textContent = 'Add a block — say 6 Assemblers making Motors — and this will work out what has to feed it.';
+      // Not "what has to feed it": 5a6d19e retired that pitch, and a block is
+      // always already built and already fed, so the one thing this view will
+      // never work out is a block's own feedstock.
+      p.textContent = 'Add a block — say 6 Assemblers making Motors — and this will work out what else you need to build.';
       wrap.appendChild(p);
     }
     return;
