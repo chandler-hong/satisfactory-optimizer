@@ -372,7 +372,12 @@ function buildRowSection(parent, heading, hint, addLabel, makeRow, scheduleRecom
   });
   parent.appendChild(addBtn);
 
-  return { addRow, readAll: () => rows.map((r) => r.read()) };
+  function clear() {
+    for (const r of rows) r.el.remove();
+    rows = [];
+  }
+
+  return { addRow, readAll: () => rows.map((r) => r.read()), clear };
 }
 
 /**
@@ -393,6 +398,7 @@ function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
   parent.appendChild(listEl);
 
   const selected = new Set(initial.goals);
+  const checkboxes = [];
   let lastGroup = null;
   for (const g of catalog) {
     // Milestones group per tier; phases all sit under one heading, so they key on
@@ -417,6 +423,7 @@ function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
       scheduleRecompute();
     });
     row.appendChild(checkbox);
+    checkboxes.push(checkbox);
     const label = el('span');
     label.textContent = g.label;
     row.appendChild(label);
@@ -436,6 +443,11 @@ function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
   return {
     getSelectedIds: () => [...selected],
     getFillMinutes: () => Math.max(1, Number(fillInput.value) || 1),
+    clear() {
+      selected.clear();
+      for (const cb of checkboxes) cb.checked = false;
+      fillInput.value = String(DEFAULT_FILL_MINUTES);
+    },
   };
 }
 
@@ -545,7 +557,18 @@ export function buildExpansion(dataset, container) {
   // affected"). .exp-controls gives them the same panel .sidebar/.exp-rows/
   // .exp-results already use.
   const controls = el('div', 'exp-controls');
-  controls.append(altPicker.warningEl, altPicker.el, modeRow);
+  // Same markup, class and confirm-then-clear behaviour as the Optimizer's
+  // Reset (js/ui/inputs.js), and the same spot: top-left of the controls
+  // panel, above everything it clears.
+  const resetRow = el('div', 'exp-reset');
+  resetRow.style.display = 'flex';
+  resetRow.style.justifyContent = 'flex-start';
+  resetRow.style.marginBottom = '0.75rem';
+  const resetBtn = el('button', 'reset-btn');
+  resetBtn.type = 'button';
+  resetBtn.textContent = 'Reset';
+  resetRow.appendChild(resetBtn);
+  controls.append(resetRow, altPicker.warningEl, altPicker.el, modeRow);
   container.appendChild(controls);
 
   const grid = el('div', 'exp');
@@ -688,6 +711,24 @@ export function buildExpansion(dataset, container) {
     goalsNote.hidden = !isMax;
   }
   modeSelect.addEventListener('change', () => { applyMode(); scheduleRecompute(); });
+
+  // Clear every control back to DEFAULT_STATE. Mirrors the Optimizer's reset()
+  // — same confirm, same "empty initial state" target — over this view's own
+  // controls: four row sections, goals, the alternates picker and the mode.
+  function reset() {
+    blockSection.clear();
+    wantSection.clear();
+    haveSection.clear();
+    maxSection.clear();
+    goalsSection.clear();
+    altPicker.reset();
+    modeSelect.value = DEFAULT_STATE.mode;
+    applyMode();
+    scheduleRecompute();
+  }
+  resetBtn.addEventListener('click', () => {
+    if (window.confirm('Reset all inputs? This clears your current plan.')) reset();
+  });
 
   // Restore saved rows without firing change events; recompute() below paints
   // once at the end. An id from a since-removed recipe/item degrades to an

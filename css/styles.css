@@ -959,15 +959,21 @@ input[type="range"]:focus-visible {
   pointer-events: none;
 }
 
-/* Red Reset button (top-left of the sidebar). */
-.sidebar button.reset-btn {
+/* Red Reset button (top-left of the sidebar, and of Expansion's controls
+   panel). .expansion-view is listed explicitly because it is a SIBLING of
+   .app, not a descendant, so a .sidebar-scoped rule never reaches it — the
+   same trap noted four times in the Expansion section below. Both views share
+   one declaration block so the two buttons cannot drift apart. */
+.sidebar button.reset-btn,
+.expansion-view button.reset-btn {
   background: var(--critical);
   color: #fff;
   border-color: transparent;
   font-weight: 700;
 }
 
-.sidebar button.reset-btn:hover {
+.sidebar button.reset-btn:hover,
+.expansion-view button.reset-btn:hover {
   background: color-mix(in srgb, var(--critical) 85%, #000);
 }
 
@@ -1364,9 +1370,12 @@ button.codex-io:focus-visible {
 }
 
 /* .alt-warning's top border is a divider from whatever precedes it in the
-   sidebar; here it's the panel's first child, so that border would read as a
-   stray rule across the panel and the top margin as dead space. */
-.exp-controls > .alt-warning:first-child {
+   sidebar; here it opens the panel's content, so that border would read as a
+   stray rule across the panel and the top margin as dead space. The Reset row
+   sits above it and is spaced by its own margin, so the warning still opens
+   the content whether or not it is literally :first-child. */
+.exp-controls > .alt-warning:first-child,
+.exp-controls > .exp-reset + .alt-warning {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
