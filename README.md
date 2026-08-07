@@ -31,22 +31,24 @@ milestone, MAM research, or hard drive). Click any ingredient to jump to its own
 from the factory you already have. Declare your blocks (6× Assembler making Motors, at
 whatever clock) and whatever is already on your bus, then pick a mode.
 
-**Target rates** adds a flat extra demand on top of the blocks and works out the upstream:
-what to build to feed it, the machine totals, the net output leaving the factory, how much
-of your existing supply gets used (and whether it runs out), the raw rates with whole miner
-counts per tier and purity, belts/pipes, power, and a factory diagram. Tick a HUB milestone
-or Space Elevator phase and it checks the plan against that goal's cost, showing what's still
-uncovered and roughly how long the plan takes to fill it — with a one-click button to turn
-the gaps into demand rows.
-
-**Maximize** flips the question: instead of a demand rate, pick one or more parts to make as
-much of as your declared blocks and existing supply allow (weight sets the ratio between them
-when you pick more than one). The result names whatever supply is fully used — "At their
+**Maximize**, the default, asks how much you can make: pick one or more parts and it makes as
+much of them as your declared blocks and existing supply allow (weight sets the ratio between
+them when you pick more than one). The result names whatever supply is fully used — "At their
 limit: Motor 30/min (fully used)" — or says plainly that nothing bounds it yet if none of your
-blocks feed the target. Maximize has no flat demand to declare and no fixed milestone cost to
-check against, so the Want and Goals sections step aside for it (each leaves a one-line note
-explaining why, rather than just disappearing); Have stays available in both modes, as supply
-either one can draw from.
+blocks feed the target.
+
+**Target rates** flips the question: instead of solving for a rate it takes one, adding a flat
+extra demand on top of the blocks and working out the upstream — what to build to feed it, the
+machine totals, the net output leaving the factory, how much of your existing supply gets used
+(and whether it runs out), the raw rates with whole miner counts per tier and purity,
+belts/pipes, power, and a factory diagram. Tick a HUB milestone or Space Elevator phase and it
+checks the plan against that goal's cost, showing what's still uncovered and roughly how long
+the plan takes to fill it — with a one-click button to turn the gaps into demand rows.
+
+Each mode hides the sections the other owns — Want and Goals belong to Target rates, Maximize
+to itself — and every hidden section leaves a one-line note in its own slot saying where it
+went, rather than just disappearing. Have stays available in both, as supply either one can
+draw from.
 
 A block is something you already have — already built and already fed — so only what it
 *makes* counts toward the plan; its own inputs never create upstream demand. The planner

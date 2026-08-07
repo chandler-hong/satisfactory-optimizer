@@ -215,13 +215,15 @@ test('sanitizeState (D8): alts drops non-string entries even with no knownRecipe
   assert.deepEqual(sanitizeState({ alts: ['x', 42] }).alts, ['x'], 'a non-string alt id must be dropped even when no known-id set is supplied');
 });
 
-test('sanitizeState: mode accepts only max or targets, defaulting to targets', () => {
-  assert.equal(sanitizeState(null).mode, 'targets');
-  assert.equal(sanitizeState({}).mode, 'targets');
+test('sanitizeState: mode accepts only max or targets, defaulting to max', () => {
+  assert.equal(sanitizeState(null).mode, 'max');
+  assert.equal(sanitizeState({}).mode, 'max');
   assert.equal(sanitizeState({ mode: 'max' }).mode, 'max');
+  assert.equal(sanitizeState({ mode: 'nonsense' }).mode, 'max', 'an unknown mode falls back to the default');
+  assert.equal(sanitizeState({ mode: 7 }).mode, 'max', 'a non-string falls back to the default');
+  // Only an explicit 'targets' opts out, so a saved state that already chose
+  // Target rates is not silently flipped to the new default on load.
   assert.equal(sanitizeState({ mode: 'targets' }).mode, 'targets');
-  assert.equal(sanitizeState({ mode: 'nonsense' }).mode, 'targets', 'an unknown mode falls back');
-  assert.equal(sanitizeState({ mode: 7 }).mode, 'targets', 'a non-string falls back');
 });
 
 test('sanitizeState: max rows keep an itemId and a positive weight', () => {

@@ -20,7 +20,7 @@ import { renderPlan, renderGoals } from './expansion-render.js';
 
 const STATE_KEY = 'sat-optimizer:expansion:v1';
 const DEFAULT_FILL_MINUTES = 10;
-export const DEFAULT_STATE = { rows: [], goals: [], fillMinutes: DEFAULT_FILL_MINUTES, alts: [], mode: 'targets' };
+export const DEFAULT_STATE = { rows: [], goals: [], fillMinutes: DEFAULT_FILL_MINUTES, alts: [], mode: 'max' };
 
 function el(tag, className) {
   const n = document.createElement(tag);
@@ -110,7 +110,10 @@ export function sanitizeState(raw, knownRecipeIds) {
   const alts = (Array.isArray(raw.alts) ? raw.alts : [])
     .filter((id) => typeof id === 'string')
     .filter((id) => !canFilter || knownRecipeIds.has(id));
-  const mode = raw.mode === 'max' ? 'max' : 'targets';
+  // Maximize is the default, so only an explicit 'targets' opts out. A saved
+  // state that already picked a mode keeps it; anything absent or malformed
+  // lands on the default rather than silently pinning the old one.
+  const mode = raw.mode === 'targets' ? 'targets' : 'max';
   return { rows, goals, fillMinutes: Number.isFinite(fill) && fill > 0 ? fill : DEFAULT_FILL_MINUTES, alts, mode };
 }
 
@@ -519,13 +522,13 @@ export function buildExpansion(dataset, container) {
   }
 
   const modeSelect = el('select');
-  for (const [value, label] of [['targets', 'Target rates'], ['max', 'Maximize']]) {
+  for (const [value, label] of [['max', 'Maximize'], ['targets', 'Target rates']]) {
     const opt = el('option');
     opt.value = value;
     opt.textContent = label;
     modeSelect.appendChild(opt);
   }
-  modeSelect.value = saved.mode === 'max' ? 'max' : 'targets';
+  modeSelect.value = saved.mode === 'targets' ? 'targets' : 'max';
   const modeRow = el('div', 'exp-mode');
   const modeLabel = el('span', 'target-row__label');
   modeLabel.textContent = 'Mode';
@@ -625,9 +628,10 @@ export function buildExpansion(dataset, container) {
   // Task 5 post-plan review round 2, Important (README.md's Maximize
   // paragraph). Mirrors goalsNote below: Want has no flat rate to declare in
   // Maximize mode, so rather than the section just vanishing with nothing
-  // left in its place, this one-line note stands in the gap and says why —
-  // matching Goals' own treatment instead of being the one hidden section
-  // that silently disappears. Carries the Want heading with it (see
+  // left in its place, this one-line note stands in the gap and says why.
+  // Every mode-specific section gets this treatment (see maxNote above and
+  // goalsNote below) so none of them silently disappears. Carries the Want
+  // heading with it (see
   // sectionStandIn) so it occupies Want's slot rather than reading as a
   // footnote on Blocks, the section immediately above.
   const wantNote = sectionStandIn('Want', 'Want adds a flat demand rate, so it applies in Target rates mode.');
@@ -642,6 +646,12 @@ export function buildExpansion(dataset, container) {
     (initial, onChange) => makeMaxRow(itemOpts, initial, onChange),
     scheduleRecompute,
   );
+  // Maximize is the default mode, so Target rates is now the one you actively
+  // switch into — which makes Maximize the section that vanishes on that
+  // switch. Same stand-in treatment as Want and Goals below, so the rule is
+  // uniform: every mode-specific section leaves a note in its own slot.
+  const maxNote = sectionStandIn('Maximize', 'Maximize solves for the biggest rate your blocks allow, so it applies in Maximize mode.');
+  rowsPane.appendChild(maxNote);
   const haveSection = buildRowSection(
     rowsPane,
     'Have',
@@ -673,6 +683,7 @@ export function buildExpansion(dataset, container) {
     wantWrap.hidden = isMax;
     wantNote.hidden = !isMax;
     maxWrap.hidden = !isMax;
+    maxNote.hidden = isMax;
     goalsWrap.hidden = isMax;
     goalsNote.hidden = !isMax;
   }
