@@ -45,10 +45,10 @@ belts/pipes, power, and a factory diagram. Tick a HUB milestone or Space Elevato
 checks the plan against that goal's cost, showing what's still uncovered and roughly how long
 the plan takes to fill it — with a one-click button to turn the gaps into demand rows.
 
-Each mode hides the sections the other owns — Want and Goals belong to Target rates, Maximize
-to itself — and every hidden section leaves a one-line note in its own slot saying where it
-went, rather than just disappearing. Have stays available in both, as supply either one can
-draw from.
+Each mode hides the sections the other owns: Want and Goals belong to Target rates and are
+simply absent in Maximize, while Maximize — being the default you left — leaves a one-line
+note behind in Target rates saying where it went. Have stays available in both, as supply
+either one can draw from.
 
 A block is something you already have — already built and already fed — so only what it
 *makes* counts toward the plan; its own inputs never create upstream demand. The planner

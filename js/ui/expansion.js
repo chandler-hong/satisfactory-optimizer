@@ -655,16 +655,6 @@ export function buildExpansion(dataset, container) {
     (initial, onChange) => makeRateRow('want', itemOpts, initial, onChange),
     scheduleRecompute,
   );
-  // Task 5 post-plan review round 2, Important (README.md's Maximize
-  // paragraph). Want has no flat rate to declare in Maximize mode, so rather
-  // than the section just vanishing with nothing left in its place, this
-  // one-line note stands in the gap and says why. Every mode-specific section
-  // gets this treatment (see maxNote and goalsNote below) so none of them
-  // silently disappears. Carries the Want heading with it (see sectionStandIn)
-  // so it occupies Want's slot rather than reading as a footnote on Blocks,
-  // the section immediately above.
-  const wantNote = sectionStandIn('Want', 'Want adds a flat demand rate, so it applies in Target rates mode.');
-  rowsPane.appendChild(wantNote);
   // Section order is Blocks -> Want -> Have -> Maximize -> Goals: the two
   // sections describing what you already have sit together, then the two that
   // say what you want out of the plan.
@@ -686,10 +676,11 @@ export function buildExpansion(dataset, container) {
     (initial, onChange) => makeMaxRow(itemOpts, initial, onChange),
     scheduleRecompute,
   );
-  // Maximize is the default mode, so Target rates is now the one you actively
-  // switch into — which makes Maximize the section that vanishes on that
-  // switch. Same stand-in treatment as Want and Goals, so the rule is uniform:
-  // every mode-specific section leaves a note in its own slot.
+  // Maximize is the default mode, so someone in Target rates chose to leave it
+  // and a pointer back is worth the line. Want and Goals get no such stand-in:
+  // they belong to the non-default mode, so in Maximize they simply aren't
+  // there. Deliberately asymmetric — the note earns its space pointing at the
+  // default, not at the mode you'd have to opt into.
   const maxNote = sectionStandIn('Maximize', 'Maximize solves for the biggest rate your blocks allow, so it applies in Maximize mode.');
   rowsPane.appendChild(maxNote);
   const catalog = buildGoalCatalog(dataset);
@@ -702,10 +693,6 @@ export function buildExpansion(dataset, container) {
     { goals: saved.goals.filter((id) => catalogIds.has(id)), fillMinutes: saved.fillMinutes },
     scheduleRecompute,
   );
-  // Same treatment as wantNote above, in Goals' own slot rather than reading
-  // as a footnote on Have.
-  const goalsNote = sectionStandIn('Goals', 'Goals plan a fixed milestone cost, so they apply in Target rates mode.');
-  rowsPane.appendChild(goalsNote);
 
   // Toggle wrappers, never the rows inside them, so switching modes doesn't
   // lose what the user typed. `have` has no wrapper: a have row is a supply
@@ -713,11 +700,9 @@ export function buildExpansion(dataset, container) {
   function applyMode() {
     const isMax = modeSelect.value === 'max';
     wantWrap.hidden = isMax;
-    wantNote.hidden = !isMax;
     maxWrap.hidden = !isMax;
     maxNote.hidden = isMax;
     goalsWrap.hidden = isMax;
-    goalsNote.hidden = !isMax;
   }
   modeSelect.addEventListener('change', () => { applyMode(); scheduleRecompute(); });
 
