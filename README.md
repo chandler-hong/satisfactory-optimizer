@@ -52,18 +52,19 @@ A block is something you already have — already built and already fed — so o
 *makes* counts toward the plan; its own inputs never create upstream demand. The planner
 works out what else you need to add. Declare your existing 6× Assembler Motor line as a
 block and ask for 10 Modular Engine/min: the plan needs 465 iron ore/min and 97 machines
-in total, including ×5 Rotor machines — Smart Plating, further up the Modular Engine
+to build, including ×5 Rotor machines — Smart Plating, further up the Modular Engine
 chain, still needs Rotors of its own, on top of whatever the Motor line already covers
-internally.
+internally. That 97 is the *Machines to build* tile, so it counts what you'd add and not
+the block's own 6 Assemblers; the finished factory is 103.
 
 That last part is a change in what a block *means*, and it reaches back into saved plans.
 A block used to have its own feedstock planned upstream as well; now it never does. The
 storage key was deliberately left unbumped — every row you declared is still a valid
 declaration and throwing them away would be worse — so an older saved plan loads intact
 and silently answers differently: the very rows in the example above used to report 1410
-iron ore/min, 267 machines and ×20 Rotor, and now report 465, 97 and ×5. Nothing is lost
-or corrupted and nothing warns you on load; the numbers just move. If a returning plan
-looks smaller than you remember, that's why.
+iron ore/min, 267 machines to build and ×20 Rotor, and now report 465, 97 and ×5. Nothing
+is lost or corrupted and nothing warns you on load; the numbers just move. If a returning
+plan looks smaller than you remember, that's why.
 
 The Expansion view has its own alternate-recipe picker, starting with all of them off, so it
 won't prescribe a recipe you haven't unlocked. It's independent of the Optimizer's picker —
@@ -86,8 +87,9 @@ Add one or more resources (e.g. Iron Ore, Mk.2 miner, 2 normal nodes), pick a ta
 and the build updates live. The tabs across the top switch between the four views —
 **Factory Optimizer**, **Power Generation**, **Codex**, and **Expansion**. Toggle dark/light
 with the theme button. The recipe dataset is fetched once from a pinned community source and
-cached in `localStorage`; the Expansion view also saves your blocks and goals there, so they
-survive a reload.
+cached in `localStorage`; the Expansion view also saves everything you declare there — blocks,
+want / maximize / have rows, goals, the solve mode, and its own alternates picker — so the
+whole plan survives a reload.
 
 ## Tests
 
