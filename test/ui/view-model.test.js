@@ -365,3 +365,20 @@ test('computePlan (targets mode): an unexhausted cap is not marked binding', () 
   const ore = view.resourceMeters.find((m) => m.itemId === 'ore');
   assert.equal(ore.binding, false, '15 mf needs 360 of 70000 ore');
 });
+
+/**
+ * With perPart split across duplicate rows, computePlan fell off its
+ * single-part headline branch ("N Rotor/min") into the generic "N sets/min",
+ * and rendered the same item twice at half its true rate.
+ */
+test('computePlan (max mode): duplicate rows on one part keep the single-part headline', () => {
+  const view = computePlan(ironChain, {
+    mode: 'max', caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES,
+    targets: [{ itemId: 'rotor', weight: 1 }, { itemId: 'rotor', weight: 1 }],
+    shardBudget: 0, beltTier: 'Mk4', pipeTier: 'Mk2',
+  });
+  assert.equal(view.perPart.length, 1, 'one item, one per-part row');
+  assert.ok(approx(view.perPart[0].rate, 32), `expected the full 32/min, got ${view.perPart[0].rate}`);
+  assert.match(view.headline, /32\b/);
+  assert.doesNotMatch(view.headline, /sets/, 'a single part gets its own name in the headline');
+});

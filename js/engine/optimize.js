@@ -79,18 +79,35 @@ export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWas
  *   different passes and must not be conflated.
  */
 export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
-  // Only producible targets reach the LP, and the SAME filtered list feeds both
-  // the model and `perPart` below, so the reported breakdown can never describe
-  // a target the solve did not actually contain.
+  // Normalize the target list once, here, and feed the SAME list to both the LP
+  // and `perPart` below — so the reported breakdown can never describe a target
+  // the solve did not actually contain. Two rules:
   //
-  // A raw resource is not producible here: the model holds raw items as a net-
-  // consumption budget against {max: cap}, not as a balance something can add to
-  // (buildMaxSetsModel, lp-builder.js, skips them for the same reason and spells
-  // out the two ways one used to corrupt the model). Dropping it at this layer
-  // as well is not belt-and-braces duplication — it is what makes the empty case
-  // below detectable, since "every target was raw" and "no targets at all" have
-  // to reach the same answer.
-  const buildable = (targets || []).filter((t) => t?.itemId && !dataset.rawResourceIds.has(t.itemId));
+  // 1. Drop raw resources. They are not producible in this model, which holds
+  //    them as a net-consumption budget against {max: cap} rather than a balance
+  //    something can add to (buildMaxSetsModel, lp-builder.js, skips them for
+  //    the same reason and spells out the two ways one used to corrupt the LP).
+  //    Dropping them here too is what makes the empty case below detectable:
+  //    "every target was raw" and "no targets at all" must reach one answer.
+  //
+  // 2. Merge repeats of the same item by SUMMING weights. Two rows on one item
+  //    are that target asked for twice, not two targets. buildMaxSetsModel
+  //    accumulates its coefficients, so the LP total was always right — but the
+  //    per-target breakdown was not: two Rotor rows at weight 1 split one
+  //    21.33/min answer into two rows reading "Rotor 10.67/min" each, and the
+  //    headline fell off computePlan's single-part branch into "10.67 sets/min".
+  //    Summing keeps "weight sets the ratio" intuitive: rows at 2 and 3 read the
+  //    same as one row at 5. planExpansion (expansion.js) already did this to
+  //    its own rows before calling in; doing it in the engine means every caller
+  //    gets it and that copy becomes belt-and-braces rather than the only guard.
+  const byItem = new Map();
+  for (const t of targets || []) {
+    if (!t?.itemId || dataset.rawResourceIds.has(t.itemId)) continue;
+    // Same normalization buildMaxSetsModel applies, hoisted so it happens once
+    // and summing cannot turn two defaulted weights into a single 0.
+    byItem.set(t.itemId, (byItem.get(t.itemId) || 0) + (t.weight > 0 ? t.weight : 1));
+  }
+  const buildable = [...byItem].map(([itemId, weight]) => ({ itemId, weight }));
   const args = { dataset, caps, enabledRecipeIds, targets: buildable, noWaste, supplies };
   // Built once, up front, so the infeasible early return below carries the same
   // one-entry-per-input-supply shape as the feasible path — callers zip this

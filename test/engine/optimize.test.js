@@ -391,3 +391,33 @@ test('maxSets: a cap the plan cannot exhaust is not reported as binding', () => 
   const r = maxSets({ dataset: ironChain, caps, enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 1 }] });
   assert.deepEqual(r.bindingResources, ['ore'], 'an untouched cap must not be reported as maxed');
 });
+
+// --- repeated max targets are one target, not two ---------------------------
+/**
+ * buildMaxSetsModel accumulates its per-target coefficients, so the LP total
+ * was always right — but perPart carried one entry per ROW, each reporting the
+ * shared `sets` figure. Two Rotor rows at weight 1 turned one 32/min answer
+ * into two rows reading "16/min" each. planExpansion deduped its own rows
+ * before calling in; the Optimizer path did not.
+ */
+test('maxSets: two rows on the same item read as one target at the full rate', () => {
+  const one = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'rotor', weight: 1 }] });
+  const two = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'rotor', weight: 1 }, { itemId: 'rotor', weight: 1 }] });
+  assert.ok(approx(one.sets, 32), `test setup check: expected ~32, got ${one.sets}`);
+  assert.equal(two.perPart.length, 1, 'one item, one per-part row');
+  assert.ok(approx(two.perPart[0].rate, one.perPart[0].rate),
+    `duplicating a row must not halve the reported rate: ${two.perPart[0].rate} vs ${one.perPart[0].rate}`);
+  // `sets` itself DOES halve, and correctly so: merging by summing weights
+  // makes this "2 rotors per set" rather than "1 rotor per set", exactly as one
+  // row at weight 2 would. rate = weight * sets is the invariant that matters,
+  // and it is what every consumer of perPart displays.
+  assert.equal(two.perPart[0].weight, 2);
+  assert.ok(approx(two.perPart[0].rate, two.perPart[0].weight * two.sets));
+});
+
+test('maxSets: repeated rows sum their weights, matching a single combined row', () => {
+  const split = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 2 }, { itemId: 'rotor', weight: 1 }, { itemId: 'mf', weight: 3 }] });
+  const merged = maxSets({ dataset: ironChain, caps: capsIron(360), enabledRecipeIds: ALL_IRON_RECIPES, targets: [{ itemId: 'mf', weight: 5 }, { itemId: 'rotor', weight: 1 }] });
+  assert.deepEqual(split.perPart.map((p) => [p.itemId, p.weight]), [['mf', 5], ['rotor', 1]]);
+  assert.ok(approx(split.sets, merged.sets), `${split.sets} vs ${merged.sets}`);
+});
