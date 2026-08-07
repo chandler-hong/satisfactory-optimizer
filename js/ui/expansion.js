@@ -310,6 +310,27 @@ function makeMaxRow(itemOpts, initial, onChange) {
 }
 
 /**
+ * A stand-in for a section the current mode hides: the section's own heading,
+ * with a one-line note where its controls would be.
+ *
+ * The heading is what makes this work. A bare `<p class="hint">` computes
+ * identically to a real section's hint paragraph, so — sitting between two
+ * visible sections with no heading of its own — it read as a footnote on the
+ * section *above* it ("Want adds a flat demand rate…" directly under
+ * "+ Add block"), which is the opposite of what it says. With the heading it
+ * occupies the hidden section's slot instead of squatting in the previous
+ * one's.
+ */
+function sectionStandIn(heading, text) {
+  const wrap = el('div');
+  wrap.appendChild(sectionHeading(heading));
+  const note = el('p', 'hint');
+  note.textContent = text;
+  wrap.appendChild(note);
+  return wrap;
+}
+
+/**
  * A labelled group of add/remove-able rows (Blocks / Want / Have): heading,
  * hint, the row list, and an "+ Add" button. Mirrors js/ui/inputs.js's own
  * target-row convention — an array kept in sync by filtering it on remove,
@@ -604,9 +625,10 @@ export function buildExpansion(dataset, container) {
   // Maximize mode, so rather than the section just vanishing with nothing
   // left in its place, this one-line note stands in the gap and says why —
   // matching Goals' own treatment instead of being the one hidden section
-  // that silently disappears.
-  const wantNote = el('p', 'hint');
-  wantNote.textContent = 'Want adds a flat demand rate, so it applies in Target rates mode.';
+  // that silently disappears. Carries the Want heading with it (see
+  // sectionStandIn) so it occupies Want's slot rather than reading as a
+  // footnote on Blocks, the section immediately above.
+  const wantNote = sectionStandIn('Want', 'Want adds a flat demand rate, so it applies in Target rates mode.');
   rowsPane.appendChild(wantNote);
   const maxWrap = el('div');
   rowsPane.appendChild(maxWrap);
@@ -636,8 +658,9 @@ export function buildExpansion(dataset, container) {
     { goals: saved.goals.filter((id) => catalogIds.has(id)), fillMinutes: saved.fillMinutes },
     scheduleRecompute,
   );
-  const goalsNote = el('p', 'hint');
-  goalsNote.textContent = 'Goals plan a fixed milestone cost, so they apply in Target rates mode.';
+  // Same treatment as wantNote above, in Goals' own slot rather than reading
+  // as a footnote on Have.
+  const goalsNote = sectionStandIn('Goals', 'Goals plan a fixed milestone cost, so they apply in Target rates mode.');
   rowsPane.appendChild(goalsNote);
 
   // Toggle wrappers, never the rows inside them, so switching modes doesn't
