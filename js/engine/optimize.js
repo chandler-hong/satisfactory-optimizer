@@ -129,15 +129,21 @@ export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = fa
   // expansion.js's EPS=1e-6 -- only 2x headroom), at every scale, just from
   // landing on the wrong side of a rounding-grid line. Second, the solver
   // carries its own relative floating-point error on top of that, on the
-  // order of `rate * 1.2e-16`. Summed, the two first exceed EPS around
-  // rate >= ~8.31e9. The EPS margin in atLimitItems still holds today only
-  // because nothing reachable gets remotely close to that: the UI clamps a
+  // order of `rate * 1.2e-16`. SUMMED, the two first exceed EPS at
+  // `(1e-6 - 4.9e-7) / 1.2e-16` ~= 4.25e9 -- the round6 loss eats half the
+  // budget before the solver term is charged anything at all. (An earlier
+  // version of this comment put the crossover at ~8.31e9, which is
+  // `EPS / 1.2e-16`: the solver term ALONE, i.e. the same sum with the round6
+  // loss dropped from it.) The EPS margin in atLimitItems still holds today
+  // only because nothing reachable gets remotely close: the UI clamps a
   // declared have/want row to MAX_RATE=1e6 (js/ui/expansion.js), and a
   // block's own ceiling (MAX_MACHINES=9999 x a 2.5x clock cap x an upper-end
-  // recipe rate, roughly 1500/min -> ~3.75e7) sits about 220x below the
-  // crossover. This is a real, load-bearing bound, not a decorative one -- a
-  // future reader raising MAX_RATE by more than two orders of magnitude
-  // needs to re-derive this margin rather than assume EPS still clears it.
+  // recipe rate, roughly 1500/min -> ~3.75e7) sits about 113x below the
+  // crossover. This is a real, load-bearing bound, not a decorative one --
+  // the largest reachable rate has to grow by a bit over two orders of
+  // magnitude to reach it, so a future reader raising MAX_RATE or
+  // MAX_MACHINES that far needs to re-derive this margin rather than assume
+  // EPS still clears it.
   const sets = r1.objective;
   const r2 = solveModel(buildMinRawForSetsModel(args, sets));
   const chosen = r2.feasible ? r2 : r1;
