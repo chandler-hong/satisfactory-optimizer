@@ -122,7 +122,7 @@ those are the only scarce things in an Expansion plan. Same code, different mean
 | No max target picked | No suggestions. Nothing to improve. |
 | Base plan **unbounded** (`bounded: false`) | **Suppress the whole panel.** With output already unlimited, "+28% output" is meaningless and the underlying `sets` is not a trustworthy number. |
 | Target needs 2+ alternates | No suggestions. The `blockedItems` diagnostic explains it. |
-| A block declares a **disabled** alternate | Suggest it normally, no special case. The user is already running that recipe; enabling it lets the *planner* add more, which is a real gain. Consistent with the documented rule that the picker governs what the planner may **choose**, not what the user may **declare**. |
+| A block declares a **disabled** alternate | **It is never suggested, and cannot be.** Corrected during implementation — the original claim here ("enabling it lets the planner add more, which is a real gain") was false. `blockOutputExclusions` (`js/engine/expansion.js:118-156`) puts each block row's primary output into `declared`, then excludes every recipe emitting **any** declared item. Declaring recipe R as a block therefore puts R's own output in `declared` and excludes R from every solve the suggester runs. The planner is *forbidden* by design from adding more of a declared block's output — raws are uncapped in Expansion, so permitting it would make the maximum unbounded. Pinned via a test that documents the trace. |
 | Target-rates mode | Panel absent entirely. |
 
 ## 8. Testing
