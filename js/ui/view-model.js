@@ -186,7 +186,8 @@ export function computePlan(dataset, req) {
   }
   const analysis = analyzeRequirements(dataset, enabledRecipeIds, availableRawIds, userAddedRawIds, targetItemIds);
   const shapeDep = (d) => ({ itemId: d.itemId, name: nameOf(dataset, d.itemId), slug: slugOf(dataset, d.itemId), added: d.added, fluid: fluidOf(dataset, d.itemId) });
-  const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep) });
+  const shapeItem = (itemId) => ({ itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), fluid: fluidOf(dataset, itemId) });
+  const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep), blockedItems: t.blockedItems.map(shapeItem) });
   const requirements = {
     hasIssues: analysis.anyImpossible || analysis.anyMissing,
     impossible: analysis.perTarget.filter((t) => t.status === 'impossible').map(shapeTarget),

@@ -180,6 +180,23 @@ export function renderBeltRow(b, fmt1) {
   return li;
 }
 
+/**
+ * Plain item chips for a requirements callout — no ✓/✗ mark, because these
+ * aren't resources you either have or don't, they're links in a recipe chain.
+ */
+function renderItemChips(items) {
+  const wrap = el('div', 'req-deps');
+  for (const it of items) {
+    const chip = el('span', 'req-dep');
+    chip.appendChild(iconEl(it.slug, it.fluid ? 'fluid' : 'item', it.name || ''));
+    const name = el('span');
+    name.textContent = it.name;
+    chip.appendChild(name);
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+
 /** ✓/✗ dependency chips for a requirements callout. */
 function renderReqDeps(deps) {
   const wrap = el('div', 'req-deps');
@@ -198,9 +215,62 @@ function renderReqDeps(deps) {
 }
 
 /**
+ * The `blockedItems` worth listing under an impossible target, or null when the
+ * message already says it all. Suppressed when the only severed link IS the
+ * target — "No enabled recipe produces Fabric. Nothing enabled can make: Fabric"
+ * is just the same sentence twice.
+ */
+function blockedChips(t) {
+  const blocked = t.blockedItems || [];
+  if (t.reason !== 'no-recipe' || blocked.length === 0) return null;
+  if (blocked.length === 1 && blocked[0].itemId === t.itemId) return null;
+  return blocked;
+}
+
+/**
+ * Why an impossible target is impossible, in the user's terms.
+ *
+ * The `no-recipe` wording is split three ways because the old single sentence
+ * ("Try enabling the alternate recipe it needs") was wrong in two of the three.
+ * Reported case: maximizing Packaged Turbofuel, whose own recipe is a BASE
+ * recipe and already enabled — the break is two steps upstream at Compacted
+ * Coal, and on the pinned dataset base + Turbofuel and base + Turbo Heavy Fuel
+ * are both still unreachable (only Turbo Blend Fuel works alone). So the user
+ * enabled an alternate, the chain still didn't close, and the message kept
+ * telling them to enable "the alternate recipe" as though they'd done nothing.
+ *
+ * Which sentence applies is decided by `blockedItems` (js/engine/requirements.js):
+ * empty means no recipe set at all can make this, and a sole entry equal to the
+ * target means one alternate provably closes it — the only case where the
+ * singular advice is honest.
+ */
+function impossibleMessage(t) {
+  if (t.reason !== 'no-recipe') {
+    return `${t.name} can’t be made from the resources you’ve added — recheck your resources or target.`;
+  }
+  const blocked = t.blockedItems;
+  // An ABSENT list is not an empty one. Empty is a positive finding; absent
+  // just means a caller didn't compute it, so claim only what `reason` already
+  // guarantees rather than blanking the panel on a TypeError.
+  if (!blocked) return `No enabled recipe chain produces ${t.name}.`;
+  if (blocked.length === 0) {
+    return `No recipe produces ${t.name} — not even with every alternate enabled.`;
+  }
+  if (blocked.length === 1 && blocked[0].itemId === t.itemId) {
+    return `No enabled recipe produces ${t.name}. Enabling an alternate that makes it will unblock it.`;
+  }
+  return `No enabled recipe chain produces ${t.name} — it breaks further upstream, so enabling one alternate may not be enough.`;
+}
+
+/**
  * Requirements diagnostics: a red `.critical` callout per impossible target and
  * an amber `.warning` callout per missing target, each listing raw dependencies
  * as ✓ added / ✗ missing chips. Names via textContent (XSS-safe).
+ *
+ * An impossible target can also carry `blockedItems` — the links in its recipe
+ * chain that nothing enabled can make — listed as plain chips above the raw
+ * dependencies. That row is the whole answer on the `no-recipe` path, where
+ * `deps` is necessarily empty (see impossibleMessage and requirements.js).
  *
  * Shared between the Optimizer (render.js) and Expansion (expansion-render.js):
  * both build this from analyzeRequirements via the identical
@@ -212,10 +282,15 @@ export function renderRequirements(requirements) {
   for (const t of requirements.impossible) {
     const box = el('div', 'requirements requirements--critical');
     const p = el('p');
-    p.textContent = t.reason === 'no-recipe'
-      ? `No enabled recipe produces ${t.name}. Try enabling the alternate recipe it needs.`
-      : `${t.name} can’t be made from the resources you’ve added — recheck your resources or target.`;
+    p.textContent = impossibleMessage(t);
     box.appendChild(p);
+    const blocked = blockedChips(t);
+    if (blocked) {
+      const label = el('p', 'req-label');
+      label.textContent = 'Nothing enabled can make:';
+      box.appendChild(label);
+      box.appendChild(renderItemChips(blocked));
+    }
     if (t.deps.length) {
       const label = el('p', 'req-label');
       label.textContent = 'Requires:';
