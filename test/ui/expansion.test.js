@@ -242,3 +242,74 @@ test('sanitizeState: max rows keep an itemId and a positive weight', () => {
     { kind: 'max', itemId: 'd', weight: 1 },
   ], 'a missing/invalid weight becomes 1; a row with no itemId or a non-string itemId (42) is dropped');
 });
+
+// --- Alternate suggestions for Maximize plans --------------------------------
+
+test('computeExpansionResult: a Maximize plan suggests an alternate that uses the block better', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),          // Expansion caps every raw at Infinity anyway
+    items: new Map([
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['plate', { id: 'plate', name: 'Plate', slug: 'plate' }],
+    ]),
+    recipes: [
+      { id: 'ingotMaker', name: 'ingotMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('ingot', 30)] },
+      { id: 'plate', name: 'plate', buildingId: 'b', alternate: false, inputs: [io('ingot', 30)], outputs: [io('plate', 20)] },
+      { id: 'plateAlt', name: 'plateAlt', buildingId: 'b', alternate: true, inputs: [io('ingot', 30)], outputs: [io('plate', 30)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+    goals: [],
+  };
+  const res = computeExpansionResult({
+    dataset: ds,
+    rows: [
+      { kind: 'block', recipeId: 'ingotMaker', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plate', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['ingotMaker', 'plate']),
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.maximize.bounded, true, 'the block should bound the plan');
+  assert.equal(res.plan.suggestions.length, 1);
+  assert.equal(res.plan.suggestions[0].recipeId, 'plateAlt');
+  assert.equal(res.plan.suggestions[0].outputSlug, 'plate');
+  assert.match(res.plan.suggestions[0].benefit.label, /\+10\/min Plate/);
+});
+
+test('computeExpansionResult: no suggestions in Target rates mode', () => {
+  const res = computeExpansionResult({
+    dataset: ironChain, rows: [{ kind: 'want', itemId: 'rod', rate: 15 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog: [], goals: [], fillMinutes: 60, mode: 'targets',
+  });
+  assert.deepEqual(res.plan.suggestions, [], 'suggestions are a Maximize-only feature');
+});
+
+test('computeExpansionResult: no suggestions when no max target is picked', () => {
+  const res = computeExpansionResult({
+    dataset: ironChain, rows: [{ kind: 'block', recipeId: 'rod', machines: 2, clock: 1 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.deepEqual(res.plan.suggestions, [], 'nothing to improve until a target is picked');
+});
+
+test('computeExpansionResult: no suggestions when the plan is unbounded', () => {
+  // A max target with no block or have row feeding it: Expansion caps every raw
+  // at Infinity, so nothing bounds the answer and `sets` is not a number worth
+  // comparing a "+28%" against.
+  const res = computeExpansionResult({
+    dataset: ironChain, rows: [{ kind: 'max', itemId: 'rod', weight: 1 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.plan.maximize.bounded, false, 'sanity check: this plan really is unbounded');
+  assert.deepEqual(res.plan.suggestions, [], 'an unbounded plan gets no suggestions');
+});
+
+// Test 5 ("an alternate declared as a block is still suggested", pinning spec
+// §7's edge-case row) is intentionally not included here yet. Verified against
+// the real engine, its fixture cannot produce the assertion it expects — see
+// the task report for the full trace. Held out rather than faked.

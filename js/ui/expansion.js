@@ -15,6 +15,7 @@
 import { createSearchSelect } from './search-select.js';
 import { createAltPicker } from './alt-picker.js';
 import { planExpansion, normalizeClock } from '../engine/expansion.js';
+import { suggestAlternates } from '../engine/suggestions.js';
 import { buildGoalCatalog, evaluateGoals } from '../domain/goals.js';
 import { renderPlan, renderGoals } from './expansion-render.js';
 
@@ -476,6 +477,45 @@ function renderMessage(target, text) {
 export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes, mode }) {
   try {
     const plan = planExpansion({ dataset, rows, enabledRecipeIds, mode });
+    // Maximize only, and only once the plan is bounded: an unbounded plan's
+    // `sets` is not a trustworthy number, so "+28% output" would be measuring
+    // against nothing. Non-fatal by design, matching js/ui/view-model.js:227 —
+    // a suggester failure must never take the plan down with it.
+    plan.suggestions = [];
+    if (mode === 'max' && plan.maximize && plan.maximize.bounded) {
+      const maxTargets = rows
+        .filter((r) => r.kind === 'max' && r.itemId)
+        .map((r) => ({ itemId: r.itemId, weight: r.weight || 1 }));
+      if (maxTargets.length > 0) {
+        try {
+          plan.suggestions = suggestAlternates({
+            dataset,
+            enabledRecipeIds,
+            mode: 'max',
+            targets: maxTargets,
+            // Inherit Expansion's semantics by solving with the real planner:
+            // gross-output-only blocks, blockOutputExclusions, raws uncapped.
+            solve: (ids) => {
+              const p = planExpansion({ dataset, rows, enabledRecipeIds: ids, mode });
+              return {
+                sets: p.maximize?.sets ?? 0,
+                perPart: p.maximize?.perPart ?? [],
+                feasible: p.feasible,
+                recipeRates: p.recipeRates,
+                shortfallTotal: 0,
+              };
+            },
+          }).suggestions.map((s) => ({
+            recipeId: s.recipeId,
+            recipeName: s.recipeName,
+            outputSlug: dataset.items.get(s.outputItemId)?.slug,
+            benefit: s.benefit,
+          }));
+        } catch (err) {
+          console.error('expansion suggestAlternates failed; continuing without suggestions:', err);
+        }
+      }
+    }
     // Goals is a Target-rates feature — the Maximize mode note says so, and
     // applyMode() hides goalsWrap (the checkbox list built by
     // buildGoalsSection) when the mode select reads "max". But that only
