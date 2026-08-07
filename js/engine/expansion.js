@@ -325,7 +325,18 @@ export function rawNeededRows(dataset, rawUsage, rawSupplied) {
 /**
  * Plan an expansion.
  * @param {{dataset: Dataset, rows: object[], enabledRecipeIds: Set<string>,
- *          shardBudget?: number, beltTier?: string, pipeTier?: string}} args
+ *          shardBudget?: number, beltTier?: string, pipeTier?: string,
+ *          mode?: 'targets'|'max'}} args
+ * @returns {object} The plan. `mode` is echoed back, and every field is shared
+ *   by both modes except `maximize`, which is `undefined` in `'targets'` mode
+ *   and in `'max'` mode is
+ *   `{ sets: number, perPart: {itemId,name,slug,fluid,weight,rate}[],
+ *      atLimitItems: {itemId,name,rate}[], bounded: boolean }`
+ *   — the maximum in balanced sets, its per-target breakdown, the declared
+ *   supplies that are fully consumed, and whether anything bounds the answer at
+ *   all. `atLimitItems` is deliberately emptied when `bounded` is false, so a
+ *   renderer that lists it without checking `bounded` first cannot print a
+ *   claim about a meaningless number.
  */
 export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0, beltTier = 'Mk4', pipeTier = 'Mk2', mode = 'targets' }) {
   const all = rows || [];

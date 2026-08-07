@@ -131,7 +131,10 @@ export const SETS = '_sets_';
  * Maximize balanced "sets": max N such that flow(itemId) >= weight*N for every
  * target. A single synthetic variable `__sets__` (= N) is the sole objective and
  * contributes -weight to each target item's balance constraint.
- * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[], noWaste?:boolean}} args
+ * `supplies` are "up to `rate`/min already on hand" sources (addSupplies above);
+ * they must be added BEFORE the SETS normalization loop, see the note there.
+ * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[],
+ *          noWaste?:boolean, supplies?:{itemId:string,rate:number,kind?:'have'|'pinned'}[]}} args
  */
 export function buildMaxSetsModel({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const { variables, touchedRaw, touchedNonRaw } = buildVariables(dataset, enabledRecipeIds);

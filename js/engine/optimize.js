@@ -44,7 +44,15 @@ export function maxOutput({ dataset, caps, enabledRecipeIds, targetItemId, noWas
  * Maximize balanced "sets" of one or more targets: max N with
  * flow(t) >= weight*N for each target. Two-pass (max sets, then min raw). A
  * single target with weight 1 reduces to maximizing that one part.
- * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[], noWaste?:boolean}} params
+ * @param {{dataset, caps:Map, enabledRecipeIds:Set, targets:{itemId:string,weight:number}[],
+ *          noWaste?:boolean, supplies?:{itemId:string,rate:number,kind?:'have'|'pinned'}[]}} params
+ * @returns {{feasible:boolean, sets:number, recipeRates:Map<string,number>,
+ *            perPart:{itemId:string,weight:number,rate:number}[], bindingResources:string[],
+ *            supplyDrawn:{itemId:string,kind:string,used:number}[],
+ *            supplyAtMax:{itemId:string,kind:string,used:number}[]}}
+ *   `supplyDrawn` and `supplyAtMax` both carry one entry per input supply, in
+ *   input order — see the comments in the body for why they are sourced from
+ *   different passes and must not be conflated.
  */
 export function maxSets({ dataset, caps, enabledRecipeIds, targets, noWaste = false, supplies = [] }) {
   const args = { dataset, caps, enabledRecipeIds, targets, noWaste, supplies };
