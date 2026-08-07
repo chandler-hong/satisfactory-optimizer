@@ -546,20 +546,19 @@ export function buildExpansion(dataset, container) {
   modeLabel.textContent = 'Mode';
   modeRow.append(modeLabel, modeSelect);
 
-  // These three are view-wide controls, so they sit above the two-pane grid
-  // rather than inside either pane — but appended straight into `container`
-  // they had no backing surface at all: .expansion-view is a SIBLING of .app
-  // (index.html), so neither .sidebar's nor .results' panel treatment reaches
-  // here, and the computed background chain ran all the way up to body's
-  // wallpaper. 110 recipe rows and their icons painted directly on it, which
-  // also made a liar of the invariant css/styles.css states over that
-  // wallpaper ("UI panels are opaque, so content readability is never
-  // affected"). .exp-controls gives them the same panel .sidebar/.exp-rows/
-  // .exp-results already use.
+  // View-wide controls sit outside the two-pane grid: Reset and Mode above it,
+  // the alternates picker below. Both need a panel of their own — appended
+  // straight into `container` they had no backing surface at all, because
+  // .expansion-view is a SIBLING of .app (index.html), so neither .sidebar's
+  // nor .results' panel treatment reaches here and the computed background
+  // chain ran all the way up to body's wallpaper. 110 recipe rows and their
+  // icons painted directly on it, which also made a liar of the invariant
+  // css/styles.css states over that wallpaper ("UI panels are opaque, so
+  // content readability is never affected").
   const controls = el('div', 'exp-controls');
   // Same markup, class and confirm-then-clear behaviour as the Optimizer's
-  // Reset (js/ui/inputs.js), and the same spot: top-left of the controls
-  // panel, above everything it clears.
+  // Reset (js/ui/inputs.js), and the same spot: top-left, above the controls
+  // it clears.
   const resetRow = el('div', 'exp-reset');
   resetRow.style.display = 'flex';
   resetRow.style.justifyContent = 'flex-start';
@@ -568,7 +567,7 @@ export function buildExpansion(dataset, container) {
   resetBtn.type = 'button';
   resetBtn.textContent = 'Reset';
   resetRow.appendChild(resetBtn);
-  controls.append(resetRow, altPicker.warningEl, altPicker.el, modeRow);
+  controls.append(resetRow, modeRow);
   container.appendChild(controls);
 
   const grid = el('div', 'exp');
@@ -576,6 +575,14 @@ export function buildExpansion(dataset, container) {
   const rowsPane = el('div', 'exp-rows');
   const resultsPane = el('div', 'exp-results');
   grid.append(rowsPane, resultsPane);
+
+  // The alternates picker is a set-and-forget preference, not something you
+  // touch per plan, so it sits below the grid rather than competing with Reset
+  // and Mode for the top. Same panel treatment as .exp-controls, for the same
+  // sibling-of-.app reason.
+  const altsPanel = el('div', 'exp-alts');
+  altsPanel.append(altPicker.warningEl, altPicker.el);
+  container.appendChild(altsPanel);
 
   /**
    * A failing plan must not take the whole view down with it — rowsPane (the
@@ -649,16 +656,26 @@ export function buildExpansion(dataset, container) {
     scheduleRecompute,
   );
   // Task 5 post-plan review round 2, Important (README.md's Maximize
-  // paragraph). Mirrors goalsNote below: Want has no flat rate to declare in
-  // Maximize mode, so rather than the section just vanishing with nothing
-  // left in its place, this one-line note stands in the gap and says why.
-  // Every mode-specific section gets this treatment (see maxNote above and
-  // goalsNote below) so none of them silently disappears. Carries the Want
-  // heading with it (see
-  // sectionStandIn) so it occupies Want's slot rather than reading as a
-  // footnote on Blocks, the section immediately above.
+  // paragraph). Want has no flat rate to declare in Maximize mode, so rather
+  // than the section just vanishing with nothing left in its place, this
+  // one-line note stands in the gap and says why. Every mode-specific section
+  // gets this treatment (see maxNote and goalsNote below) so none of them
+  // silently disappears. Carries the Want heading with it (see sectionStandIn)
+  // so it occupies Want's slot rather than reading as a footnote on Blocks,
+  // the section immediately above.
   const wantNote = sectionStandIn('Want', 'Want adds a flat demand rate, so it applies in Target rates mode.');
   rowsPane.appendChild(wantNote);
+  // Section order is Blocks -> Want -> Have -> Maximize -> Goals: the two
+  // sections describing what you already have sit together, then the two that
+  // say what you want out of the plan.
+  const haveSection = buildRowSection(
+    rowsPane,
+    'Have',
+    'Supply already on your bus (e.g. 300 Rubber/min from an existing plant) that the plan can draw from before asking for more.',
+    '+ Add have',
+    (initial, onChange) => makeRateRow('have', itemOpts, initial, onChange),
+    scheduleRecompute,
+  );
   const maxWrap = el('div');
   rowsPane.appendChild(maxWrap);
   const maxSection = buildRowSection(
@@ -671,18 +688,10 @@ export function buildExpansion(dataset, container) {
   );
   // Maximize is the default mode, so Target rates is now the one you actively
   // switch into — which makes Maximize the section that vanishes on that
-  // switch. Same stand-in treatment as Want and Goals below, so the rule is
-  // uniform: every mode-specific section leaves a note in its own slot.
+  // switch. Same stand-in treatment as Want and Goals, so the rule is uniform:
+  // every mode-specific section leaves a note in its own slot.
   const maxNote = sectionStandIn('Maximize', 'Maximize solves for the biggest rate your blocks allow, so it applies in Maximize mode.');
   rowsPane.appendChild(maxNote);
-  const haveSection = buildRowSection(
-    rowsPane,
-    'Have',
-    'Supply already on your bus (e.g. 300 Rubber/min from an existing plant) that the plan can draw from before asking for more.',
-    '+ Add have',
-    (initial, onChange) => makeRateRow('have', itemOpts, initial, onChange),
-    scheduleRecompute,
-  );
   const catalog = buildGoalCatalog(dataset);
   const catalogIds = new Set(catalog.map((g) => g.id));
   const goalsWrap = el('div');
