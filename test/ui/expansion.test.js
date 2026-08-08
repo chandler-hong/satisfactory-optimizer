@@ -278,33 +278,106 @@ test('computeExpansionResult: a Maximize plan suggests an alternate that uses th
   assert.match(res.plan.suggestions[0].benefit.label, /\+10\/min Plate/);
 });
 
+// Fix round 1: the three tests below used to run against `ironChain`, whose
+// factory (test/fixtures/iron-chain.js:4, applied to all seven recipes at
+// :11-17) hardcodes `alternate: false` on every recipe. With zero alternates,
+// `disabledAlts` is empty and suggestAlternates short-circuits at
+// js/engine/suggestions.js:85-86 (`if (disabledAlts.length === 0) return
+// { suggestions: [] }`) before any gate below is ever reached — so all three
+// tests passed even with their target gate deleted. Rebuilt on test 1's `ds`
+// (a genuine disabled alternate, `plateAlt`) instead, per review.
 test('computeExpansionResult: no suggestions in Target rates mode', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),
+    items: new Map([
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['plate', { id: 'plate', name: 'Plate', slug: 'plate' }],
+    ]),
+    recipes: [
+      { id: 'ingotMaker', name: 'ingotMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('ingot', 30)] },
+      { id: 'plate', name: 'plate', buildingId: 'b', alternate: false, inputs: [io('ingot', 30)], outputs: [io('plate', 20)] },
+      { id: 'plateAlt', name: 'plateAlt', buildingId: 'b', alternate: true, inputs: [io('ingot', 30)], outputs: [io('plate', 30)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+    goals: [],
+  };
+  // Same fixture and rows as test 1 above (which does get a suggestion in
+  // Maximize mode) -- only `mode` differs, so a real disabled alternate is on
+  // the table and the only thing that can suppress it is the mode check.
   const res = computeExpansionResult({
-    dataset: ironChain, rows: [{ kind: 'want', itemId: 'rod', rate: 15 }],
-    enabledRecipeIds: ALL_IRON_RECIPES,
+    dataset: ds,
+    rows: [
+      { kind: 'block', recipeId: 'ingotMaker', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plate', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['ingotMaker', 'plate']),
     catalog: [], goals: [], fillMinutes: 60, mode: 'targets',
   });
+  assert.equal(res.ok, true);
   assert.deepEqual(res.plan.suggestions, [], 'suggestions are a Maximize-only feature');
 });
 
 test('computeExpansionResult: no suggestions when no max target is picked', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),
+    items: new Map([
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['plate', { id: 'plate', name: 'Plate', slug: 'plate' }],
+    ]),
+    recipes: [
+      { id: 'ingotMaker', name: 'ingotMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('ingot', 30)] },
+      { id: 'plate', name: 'plate', buildingId: 'b', alternate: false, inputs: [io('ingot', 30)], outputs: [io('plate', 20)] },
+      { id: 'plateAlt', name: 'plateAlt', buildingId: 'b', alternate: true, inputs: [io('ingot', 30)], outputs: [io('plate', 30)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+    goals: [],
+  };
+  // Same fixture as test 1 above, minus its `max` row: plateAlt is still a
+  // live disabled alternate, and mode is still 'max' -- only "no max target
+  // chosen" is left to suppress it.
   const res = computeExpansionResult({
-    dataset: ironChain, rows: [{ kind: 'block', recipeId: 'rod', machines: 2, clock: 1 }],
-    enabledRecipeIds: ALL_IRON_RECIPES,
+    dataset: ds,
+    rows: [
+      { kind: 'block', recipeId: 'ingotMaker', machines: 1, clock: 1 },
+    ],
+    enabledRecipeIds: new Set(['ingotMaker', 'plate']),
     catalog: [], goals: [], fillMinutes: 60, mode: 'max',
   });
+  assert.equal(res.ok, true);
   assert.deepEqual(res.plan.suggestions, [], 'nothing to improve until a target is picked');
 });
 
 test('computeExpansionResult: no suggestions when the plan is unbounded', () => {
-  // A max target with no block or have row feeding it: Expansion caps every raw
-  // at Infinity, so nothing bounds the answer and `sets` is not a number worth
-  // comparing a "+28%" against.
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),
+    items: new Map([
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['plate', { id: 'plate', name: 'Plate', slug: 'plate' }],
+    ]),
+    recipes: [
+      { id: 'ingotMaker', name: 'ingotMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('ingot', 30)] },
+      { id: 'plate', name: 'plate', buildingId: 'b', alternate: false, inputs: [io('ingot', 30)], outputs: [io('plate', 20)] },
+      { id: 'plateAlt', name: 'plateAlt', buildingId: 'b', alternate: true, inputs: [io('ingot', 30)], outputs: [io('plate', 30)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+    goals: [],
+  };
+  // Same fixture as test 1 above, minus its `block` row: ingotMaker has no
+  // inputs and nothing pins it, so plate is free to run unboundedly. plateAlt
+  // is still a live disabled alternate, and a max target is still picked --
+  // only "the plan is unbounded" is left to suppress it.
   const res = computeExpansionResult({
-    dataset: ironChain, rows: [{ kind: 'max', itemId: 'rod', weight: 1 }],
-    enabledRecipeIds: ALL_IRON_RECIPES,
+    dataset: ds,
+    rows: [
+      { kind: 'max', itemId: 'plate', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['ingotMaker', 'plate']),
     catalog: [], goals: [], fillMinutes: 60, mode: 'max',
   });
+  assert.equal(res.ok, true);
   assert.equal(res.plan.maximize.bounded, false, 'sanity check: this plan really is unbounded');
   assert.deepEqual(res.plan.suggestions, [], 'an unbounded plan gets no suggestions');
 });
