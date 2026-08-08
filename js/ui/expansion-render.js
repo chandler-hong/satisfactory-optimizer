@@ -10,7 +10,7 @@
  * DOM only — all arithmetic lives in js/engine/expansion.js.
  */
 import { iconEl as icon } from './icons.js';
-import { renderTilesPanel, buildTable, renderMachineTotalsRow, renderBeltRow, renderRequirements, renderShortfalls } from './report-panels.js';
+import { renderTilesPanel, buildTable, renderMachineTotalsRow, renderBeltRow, renderRequirements, renderShortfalls, renderSuggestions } from './report-panels.js';
 import { buildGraph } from '../engine/graph.js';
 import { renderDiagram } from './diagram.js';
 
@@ -305,7 +305,7 @@ export function hasDiagnostics(plan) {
     || (plan.shortfalls && plan.shortfalls.length > 0));
 }
 
-export function renderPlan(wrap, dataset, plan) {
+export function renderPlan(wrap, dataset, plan, onEnableAlternate) {
   wrap.replaceChildren();
   // Diagnostics first and unconditionally on hasDiagnostics — matching the
   // Optimizer's order in render.js, which renders its callouts before the
@@ -323,6 +323,12 @@ export function renderPlan(wrap, dataset, plan) {
   if (plan.mode === 'max' && plan.maximize) {
     wrap.appendChild(renderMaximizePanel(plan.maximize));
     if (!plan.maximize.bounded) return;
+    // Placed after the unbounded early-return on purpose: that branch renders
+    // only a refusal message, and "+28% output" against an unbounded plan
+    // would be measuring a gain over nothing.
+    if (plan.suggestions && plan.suggestions.length > 0) {
+      wrap.appendChild(renderSuggestions(plan.suggestions, onEnableAlternate));
+    }
   }
   if (!hasContent(plan)) {
     // The hint only helps someone who hasn't described anything yet; after a

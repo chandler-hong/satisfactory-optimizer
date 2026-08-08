@@ -665,7 +665,9 @@ export function buildExpansion(dataset, container) {
     }
     saveState({ rows, goals, fillMinutes, alts: [...altPicker.getEnabledIds()], mode });
     try {
-      renderPlan(resultsPane, dataset, result.plan);
+      renderPlan(resultsPane, dataset, result.plan, (recipeId) => {
+        altPicker.enableOne(recipeId);
+      });
       renderGoals(resultsPane, result.goalViews, result.shortfallRows.length, () => addShortfallRows(result.shortfallRows));
     } catch (err) {
       console.error(err);
