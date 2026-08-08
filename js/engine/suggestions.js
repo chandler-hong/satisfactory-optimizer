@@ -153,6 +153,24 @@ export function suggestAlternates(
     // 110-alternate sweep measured 69-87ms end to end there — inside
     // Expansion's 150ms recompute debounce. `capped` stays false because
     // nothing was dropped.
+    //
+    // Do NOT add `&& (all.sets ?? 0) > EPS` here to skip a "provably fruitless"
+    // sweep. The theorem behind that idea is sound — enabling a recipe only
+    // adds LP columns, so opt(candidate) <= opt(all-on), and a genuine zero
+    // all-on optimum does force deltaSets = 0 for every candidate — but
+    // `all.sets` does not test its precondition. The injected Expansion solver
+    // reports `sets: 0, bounded: false` for a RUNAWAY solve too (it zeroes the
+    // whole shape rather than pass a raw-clamp artefact through, see
+    // js/ui/expansion.js), which is byte-identical to a genuine bounded zero
+    // here. Measured on the shipped dataset: the condition fires on all three
+    // sweep cases, including Iron Rod x6 -> Modular Frame (deletes 4
+    // suggestions, Steeled Frame at +425% among them) and Fuel x6 -> Turbofuel
+    // (deletes "Turbo Blend Fuel — builds this (0 -> 720/min)", the feature's
+    // headline case). `all.feasible` happens to separate them today, but only
+    // because that closure hardcodes `feasible: false` on the runaway path as
+    // part of the zeroing — nothing documents it as a signal, and the LP is in
+    // fact feasible there. Not worth coupling to for the ~68ms it would save
+    // on the one case where the sweep really is fruitless.
     candidates = disabledAlts;
   }
 
