@@ -19,7 +19,13 @@ function rawTotal(dataset, recipeRates) {
   return total;
 }
 
-/** Solve the active mode for a given enabled-recipe set; normalized shape. */
+/**
+ * Solve the active mode for a given enabled-recipe set; normalized shape:
+ * `{ recipeRates, sets, perPart, shortfallTotal, feasible }`, plus an OPTIONAL
+ * `bounded` an injected solver may add (see suggestAlternates). This built-in
+ * has no boundedness concept — the Optimizer's raw caps make every solve
+ * finite — so it omits the field entirely rather than guessing a value.
+ */
 function solveFor({ dataset, caps, mode, targets, noWaste }, recipeIds) {
   if (mode === 'targets') {
     const r = hitTargets({ dataset, caps, enabledRecipeIds: recipeIds, targets, noWaste });
@@ -91,6 +97,11 @@ export function suggestAlternates(
   // rank alternates against a node-fed factory the user does not have. Passing
   // planExpansion in means those semantics are inherited rather than restated
   // here, which is where this project's escaped bugs have come from.
+  //
+  // An injected solver may also report `bounded` on its result. That is the
+  // one piece of solver-specific knowledge this module accepts, and it is
+  // opt-in: see `probeRanks` below for what an explicit `false` changes and
+  // why an omitted field must change nothing.
   const params = { dataset, caps, mode, targets, noWaste };
   const solveWith = solve || ((recipeIds) => solveFor(params, recipeIds));
 
@@ -103,12 +114,47 @@ export function suggestAlternates(
   for (const r of disabledAlts) allEnabled.add(r.id);
   const all = solveWith(allEnabled);
 
+  // `bounded` is an OPTIONAL field on the solve shape, and only an explicit
+  // `false` means anything here. A solver with no boundedness concept — the
+  // built-in solveFor above, i.e. every Optimizer call — leaves it undefined,
+  // and `undefined !== false`, so that path keeps the probe ranking below
+  // exactly as it always was. Do not "simplify" this to `!all.bounded`: that
+  // would silently put the Optimizer on the sweep.
+  const probeRanks = all.bounded !== false;
+
   // Only alternates the global optimum actually uses can help; rank by usage.
-  let candidates = disabledAlts
-    .filter((r) => (all.recipeRates.get(r.id) || 0) > 1e-9)
-    .sort((x, y) => (all.recipeRates.get(y.id) || 0) - (all.recipeRates.get(x.id) || 0));
-  const capped = candidates.length > maxCandidates;
-  candidates = candidates.slice(0, maxCandidates);
+  //
+  // That reasoning holds only while the all-on probe describes the user's
+  // plan. When the probe reports itself unbounded, its recipeRates describe a
+  // runaway solve at raw-clamp scale whose recipe support is unrelated to the
+  // bounded plan being improved — measured on the shipped dataset, 31% of
+  // bounded Expansion Maximize plans have an unbounded all-on probe, and the
+  // genuinely best alternate routinely carries rate 0 in it (Iron Rod x6 ->
+  // Modular Frame: Steeled Frame, worth +425%, is absent from the probe
+  // entirely). Filtering on that map doesn't rank the candidates, it deletes
+  // them, and the per-candidate `bounded` gate below never gets to see them.
+  // So: no ranking signal, no ranking — evaluate every disabled alternate and
+  // let that gate do the filtering it was written to do.
+  let candidates;
+  let capped = false;
+  if (probeRanks) {
+    candidates = disabledAlts
+      .filter((r) => (all.recipeRates.get(r.id) || 0) > 1e-9)
+      .sort((x, y) => (all.recipeRates.get(y.id) || 0) - (all.recipeRates.get(x.id) || 0));
+    capped = candidates.length > maxCandidates;
+    candidates = candidates.slice(0, maxCandidates);
+  } else {
+    // maxCandidates deliberately does NOT apply on this path. It exists to cap
+    // work by dropping the tail of a ranking; with no trustworthy ranking, a
+    // slice here would keep an arbitrary `maxCandidates` alternates in dataset
+    // order and drop the rest — reintroducing exactly the miss the sweep
+    // exists to prevent, only nondeterministically. The work is bounded
+    // instead by disabledAlts itself: 110 on the shipped dataset, and a full
+    // 110-alternate sweep measured 69-87ms end to end there — inside
+    // Expansion's 150ms recompute debounce. `capped` stays false because
+    // nothing was dropped.
+    candidates = disabledAlts;
+  }
 
   const byId = new Map(dataset.recipes.map((r) => [r.id, r]));
   const nameOf = (id) => dataset.items.get(id)?.name ?? id;

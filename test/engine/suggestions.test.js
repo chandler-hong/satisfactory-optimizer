@@ -197,3 +197,100 @@ test('suggestAlternates: an injected solve() replaces the built-in solver entire
   assert.ok(seen.includes('ingot,ingotAlt'), 'injected solve() should be called for the ingotAlt-only candidate set (call site 3)');
   assert.ok(seen.includes('ingot,ingotBad'), 'injected solve() should be called for the ingotBad-only candidate set (call site 3)');
 });
+
+// --- Candidate selection when the all-on probe can't be trusted ---------------
+
+/**
+ * Shaped after the real failure on the shipped dataset (Expansion -> Maximize,
+ * block Iron Rod x6, max row Modular Frame): the base plan is bounded at
+ * 8.57/min, the all-alternates-on probe runs away to 1.9e9, and in that runaway
+ * solve the alternate that actually helps most — Steeled Frame, worth +425% —
+ * carries a rate of exactly 0, while a mediocre one (Stitched Iron Plate, +75%)
+ * carries all the flow. Candidate selection filtered on that map, so the winner
+ * was never a candidate and the per-candidate `bounded` gate never saw it.
+ *
+ * `altGood`/`altOk`/`altNone` reproduce that in the three states that matter:
+ * absent from the probe but a real gain, present in the probe and a small gain,
+ * and no gain at all.
+ */
+const PROBE_DS = {
+  rawResourceIds: new Set(['ore']),
+  items: new Map([
+    ['ore', { id: 'ore', name: 'Ore', slug: 'ore' }],
+    ['frame', { id: 'frame', name: 'Frame', slug: 'frame' }],
+  ]),
+  recipes: [
+    { id: 'mk', name: 'mk', buildingId: 'b', alternate: false, inputs: [io('ore', 30)], outputs: [io('frame', 30)] },
+    { id: 'altGood', name: 'altGood', buildingId: 'b', alternate: true, inputs: [io('ore', 30)], outputs: [io('frame', 90)] },
+    { id: 'altOk', name: 'altOk', buildingId: 'b', alternate: true, inputs: [io('ore', 30)], outputs: [io('frame', 45)] },
+    { id: 'altNone', name: 'altNone', buildingId: 'b', alternate: true, inputs: [io('ore', 30)], outputs: [io('frame', 10)] },
+  ],
+  buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+};
+const PROBE_SETS = { mk: 8, 'altGood,mk': 45, 'altOk,mk': 15, 'altNone,mk': 8 };
+/**
+ * @param {boolean|undefined} probeBounded what the all-on solve reports about
+ *   itself; `undefined` models a solver with no boundedness concept.
+ */
+function probeSolver(probeBounded) {
+  return (ids) => {
+    const key = [...ids].sort().join(',');
+    if (key === 'altGood,altNone,altOk,mk') {
+      // The runaway probe: altOk carries every unit of flow, altGood none at all.
+      const all = { sets: 2e9, perPart: [{ itemId: 'frame', weight: 1, rate: 2e9 }], feasible: true, shortfallTotal: 0, recipeRates: new Map([['altOk', 5e7]]) };
+      return probeBounded === undefined ? all : { ...all, bounded: probeBounded };
+    }
+    const sets = PROBE_SETS[key] ?? 0;
+    const one = { sets, perPart: [{ itemId: 'frame', weight: 1, rate: sets }], feasible: true, shortfallTotal: 0, recipeRates: new Map() };
+    return probeBounded === undefined ? one : { ...one, bounded: true };
+  };
+}
+
+test('suggestAlternates: an unbounded all-on probe is swept, not trusted to rank', () => {
+  const r = suggestAlternates({
+    dataset: PROBE_DS, caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['mk']),
+    mode: 'max', targets: [{ itemId: 'frame', weight: 1 }], solve: probeSolver(false),
+  });
+  assert.deepEqual(
+    r.suggestions.map((s) => s.recipeId), ['altGood', 'altOk'],
+    'altGood is worth +37 sets and altOk only +7, so altGood must lead — pre-fix altGood was not even a candidate, because the runaway probe gave it rate 0',
+  );
+  assert.equal(r.evaluatedCount, 3, 'every disabled alternate is evaluated, not just the probe\'s support');
+  assert.ok(!r.suggestions.some((s) => s.recipeId === 'altNone'), 'the per-candidate gate still drops an alternate with no gain');
+});
+
+/**
+ * The other half of the same contract, and the reason the check is
+ * `all.bounded !== false` rather than `!all.bounded`. The Optimizer's built-in
+ * solver has no boundedness concept and omits the field; an implementation that
+ * read a missing field as "unbounded" would silently move every Optimizer
+ * session onto the sweep — a behaviour change nothing asked for, on a code path
+ * whose probe is trustworthy (its raw caps make every solve finite).
+ */
+test('suggestAlternates: a probe that reports no boundedness at all still ranks, exactly as before', () => {
+  const r = suggestAlternates({
+    dataset: PROBE_DS, caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['mk']),
+    mode: 'max', targets: [{ itemId: 'frame', weight: 1 }], solve: probeSolver(undefined),
+  });
+  assert.deepEqual(r.suggestions.map((s) => s.recipeId), ['altOk'],
+    'with no boundedness reported, selection stays on the probe\'s recipe support — altOk only');
+  assert.equal(r.evaluatedCount, 1);
+});
+
+/**
+ * maxCandidates caps work by dropping the TAIL OF A RANKING. On the sweep there
+ * is no ranking to be the tail of, so a slice would keep an arbitrary
+ * `maxCandidates` alternates in dataset order and drop the rest — reintroducing
+ * exactly the miss the sweep exists to prevent. `altGood` is deliberately last
+ * in dataset order here and maxCandidates is 1, so any slice at all loses it.
+ */
+test('suggestAlternates: maxCandidates does not truncate the sweep', () => {
+  const dataset = { ...PROBE_DS, recipes: [PROBE_DS.recipes[0], PROBE_DS.recipes[2], PROBE_DS.recipes[3], PROBE_DS.recipes[1]] };
+  const r = suggestAlternates({
+    dataset, caps: new Map([['ore', 60]]), enabledRecipeIds: new Set(['mk']),
+    mode: 'max', targets: [{ itemId: 'frame', weight: 1 }], solve: probeSolver(false),
+  }, { maxCandidates: 1 });
+  assert.equal(r.suggestions[0]?.recipeId, 'altGood', 'the best alternate is found even though it sorts last in dataset order');
+  assert.equal(r.evaluatedCount, 3);
+  assert.equal(r.capped, false, 'nothing was dropped, so nothing should claim it was');
+});
