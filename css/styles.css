@@ -1101,6 +1101,11 @@ input[type="range"]:focus-visible {
 
 /* ==========================================================================
    Alternate-recipe improvement suggestions (accent callout, one-click Enable)
+
+   Deliberately UNSCOPED: renderSuggestions (js/ui/report-panels.js) is shared,
+   and .expansion-view is a SIBLING of .app in index.html, so scoping these
+   under .app would silently unstyle the Expansion panel. Duplicate the selector
+   for both roots (as the input/button rules above do) if scoping is ever needed.
    ========================================================================== */
 .suggestions {
   margin-top: 0.75rem;
