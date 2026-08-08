@@ -187,6 +187,28 @@ function itemOptions(dataset) {
 }
 
 /**
+ * The Maximize picker's options: itemOptions minus the raw resources, matching
+ * the Optimizer's own target pickers (js/ui/inputs.js — `buildableItems`).
+ * A maximize row names a thing to BUILD, and the engine refuses a raw one:
+ * maxSets filters raw targets out of `buildable`, so a raw-only Maximize plan
+ * comes back with `perPart: []` and renderMaximizePanel prints "Pick something
+ * to maximize." over a row the user demonstrably did pick.
+ *
+ * Deliberately a second list rather than a filter inside itemOptions: Want and
+ * Have rows keep every item. A `have` row is "this is already on my bus", which
+ * is a sensible thing to say about ore, and narrowing the shared list would also
+ * blank the picker on any *saved* want/have row naming a raw (buildExpansion's
+ * restore loop degrades an id that isn't in the options list to an unselected
+ * picker). Only the Maximize row's own list changes.
+ *
+ * Exported for test: the pickers themselves are DOM, but which items they offer
+ * is a pure function of the dataset.
+ */
+export function maxItemOptions(dataset) {
+  return itemOptions(dataset).filter((o) => !dataset.rawResourceIds.has(o.id));
+}
+
+/**
  * One machine-block row: recipe picker, machine count, clock %, a derived
  * building-name label, and a remove button. `clock` is stored/read as the
  * 0-2.5 fraction planExpansion expects (1 = 100%, matching pinnedBalance's
@@ -564,6 +586,7 @@ export function buildExpansion(dataset, container) {
 
   const recipeOpts = recipeOptions(dataset);
   const itemOpts = itemOptions(dataset);
+  const maxOpts = maxItemOptions(dataset);
   const recipeById = new Map(dataset.recipes.map((r) => [r.id, r]));
   const saved = loadState(new Set(dataset.recipes.map((r) => r.id)));
 
@@ -728,7 +751,7 @@ export function buildExpansion(dataset, container) {
     'Maximize',
     'Make as much of this as your declared lines allow. Weight sets the ratio when you pick more than one.',
     '+ Add target',
-    (initial, onChange) => makeMaxRow(itemOpts, initial, onChange),
+    (initial, onChange) => makeMaxRow(maxOpts, initial, onChange),
     scheduleRecompute,
   );
   // Maximize is the default mode, so someone in Target rates chose to leave it
@@ -785,8 +808,14 @@ export function buildExpansion(dataset, container) {
   // fields) instead of throwing, mirroring buildInputs' restoreState. Goals
   // need no such loop: buildGoalsSection above already built each checkbox's
   // initial `checked` state directly from the (already-filtered) saved list.
+  //
+  // A max row checks its OWN narrower list (maxOpts, no raw resources), not the
+  // shared one — a saved max row naming a raw is a row this build can no longer
+  // offer, so it degrades to an unselected picker exactly like a since-deleted
+  // item, rather than restoring a value the live picker can't reproduce.
   const recipeIds = new Set(recipeOpts.map((o) => o.id));
   const itemIds = new Set(itemOpts.map((o) => o.id));
+  const maxItemIds = new Set(maxOpts.map((o) => o.id));
   for (const r of saved.rows) {
     if (r.kind === 'block') {
       blockSection.addRow(recipeIds.has(r.recipeId) ? r : { ...r, recipeId: null });
@@ -795,7 +824,7 @@ export function buildExpansion(dataset, container) {
     } else if (r.kind === 'have') {
       haveSection.addRow(itemIds.has(r.itemId) ? r : { ...r, itemId: null });
     } else if (r.kind === 'max') {
-      maxSection.addRow(itemIds.has(r.itemId) ? r : { ...r, itemId: null });
+      maxSection.addRow(maxItemIds.has(r.itemId) ? r : { ...r, itemId: null });
     }
   }
 

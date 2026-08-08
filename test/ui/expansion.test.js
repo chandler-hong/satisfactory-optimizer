@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeState, DEFAULT_STATE, uncoveredToRows, computeExpansionResult } from '../../js/ui/expansion.js';
+import { sanitizeState, DEFAULT_STATE, uncoveredToRows, computeExpansionResult, maxItemOptions } from '../../js/ui/expansion.js';
 import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
 
 test('sanitizeState: null / garbage falls back to defaults', () => {
@@ -477,4 +477,27 @@ test('computeExpansionResult: a bounded base whose candidate goes unbounded gets
   assert.equal(res.ok, true);
   assert.equal(res.plan.maximize.bounded, true, 'sanity check: the base plan is bounded by the block');
   assert.deepEqual(res.plan.suggestions, [], 'an unbounded candidate must be suppressed, not top-ranked');
+});
+
+/**
+ * A maximize row names a thing to BUILD. Offering raw resources there was a
+ * regression against the Optimizer, whose own target pickers filter them
+ * (js/ui/inputs.js) because the engine refuses a raw target outright: maxSets
+ * drops raw targets from `buildable`, so a Maximize plan whose only row is Iron
+ * Ore comes back with `perPart: []` and renderMaximizePanel prints "Pick
+ * something to maximize." over a row the user demonstrably did pick.
+ *
+ * Want and Have rows keep the full list; only the Maximize row narrows.
+ */
+test('maxItemOptions: the Maximize picker offers buildable items only', () => {
+  const dataset = {
+    rawResourceIds: new Set(['ore']),
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Iron Ore', slug: 'ore' }],
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['special__power', { id: 'special__power', name: 'Power', slug: 'power' }],
+    ]),
+  };
+  assert.deepEqual(maxItemOptions(dataset).map((o) => o.id), ['ingot'],
+    'raw resources are dropped, and special__ pseudo-items stay dropped');
 });
