@@ -533,22 +533,33 @@ export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalo
     // maximizeIsReadable — and it is the case the feature was designed around
     // (spec §5's Packaged Turbofuel example), so it must pass this gate.
     //
-    // Gate conjuncts, since three of the four here used to be indistinguishable
-    // from dead code to a reader:
-    //  - `mode === 'max'`: live. Targets mode has its own benefit kinds and no
-    //    maximize block at all.
-    //  - `plan.maximize` truthy (inside maximizeIsReadable): dead TODAY, kept
-    //    as defense-in-depth. planExpansion's invariant is `maximize` defined
-    //    iff `mode === 'max'`, so the conjunct above already implies it — but
-    //    the predicate dereferences `.bounded`/`.sets`, so if that invariant
-    //    ever changes this is the difference between no suggestions and a
-    //    TypeError inside the recompute path.
-    //  - `maxTargets.length > 0`: LIVE, and newly so. It used to be implied by
-    //    `bounded` (planExpansion hand-rolls `{sets: 0, bounded: false}` for an
-    //    empty maxTargets), which is exactly the shape the zero-output fix now
-    //    lets through — so this is the only thing left stopping a
-    //    nothing-picked-yet plan from running 110 solves to suggest alternates
-    //    for a target that doesn't exist.
+    // Gate conjuncts. All three are individually REDUNDANT today: each was
+    // mutation-tested against the full suite with the other two left in place,
+    // and all three mutants survived green. So none of them is the one thing
+    // holding this gate up, and an earlier version of this comment calling two
+    // of them "live" and one "dead TODAY" had the labels backwards in both
+    // directions. What they actually are is three independent guards on three
+    // different invariants:
+    //  - `mode === 'max'`: implied today by the conjunct below, via
+    //    planExpansion's invariant that `maximize` is defined iff the mode is
+    //    max. Delete it and nothing observable changes until that invariant
+    //    does; it is what would keep the gate honest if `maximize` ever started
+    //    being emitted in targets mode, which has its own benefit kinds.
+    //  - `plan.maximize` truthy (the `Boolean(m)` maximizeIsReadable opens
+    //    with): implied today by the conjunct above — the same invariant read
+    //    the other way, which is why it is no more "live" than that one. Its
+    //    distinct job is guarding the dereference: the predicate reads
+    //    `.bounded`/`.sets`, so if `maximize` ever stops being emitted in max
+    //    mode this is the difference between no suggestions and a TypeError
+    //    inside the recompute path.
+    //  - `maxTargets.length > 0`: a COST guard, not a correctness one. Remove
+    //    it and the answer is identical — planExpansion hand-rolls
+    //    `{sets: 0, bounded: false}` for an empty maxTargets, which the
+    //    zero-output fix lets through as readable, every candidate then scores
+    //    deltaSets 0, and nothing is suggested. It just runs 110 solves to get
+    //    there: measured at 19ms on the shipped dataset for a plan with a block
+    //    and no max row yet (cheap only because that path skips maxSets
+    //    entirely; it is not a bound on what a future shape would cost).
     // Non-fatal by design, matching js/ui/view-model.js:227 — a suggester
     // failure must never take the plan down with it.
     plan.suggestions = [];
