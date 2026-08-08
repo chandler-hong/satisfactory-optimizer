@@ -474,6 +474,34 @@ function buildGoalsSection(parent, catalog, initial, scheduleRecompute) {
   };
 }
 
+const EPS = 1e-6;
+
+/**
+ * Whether a `plan.maximize` block's numbers can be reasoned about at all.
+ *
+ * `bounded` alone is NOT that test, because it conflates two opposite states.
+ * js/engine/expansion.js defines it as `atLimitItems.length > 0 && every raw
+ * below the clamp`, and `sets === 0` always leaves atLimitItems empty (nothing
+ * was drawn, so nothing is at its limit) — so `bounded: false` covers both
+ * "the output is unlimited and this number is a raw-clamp artefact" and "the
+ * output is zero." Only the first is unreadable. The second is a perfectly
+ * definite answer, and it is the one Expansion needs suggestions for most: the
+ * alternates picker starts with all 110 off, so "nothing I have makes this
+ * yet" is the ordinary starting position, not an edge case.
+ *
+ * The split is `sets`, and on the shipped dataset the two states are not near
+ * each other: over 6522 sampled (block, max-target) plans, every `bounded:
+ * false` plan had `sets` either exactly 0 (2771 of them) or above 2.4e5 (the
+ * rest, up to Infinity) — nothing in between — and no `bounded: true` plan had
+ * `sets` of 0. So a simple `sets <= EPS` separates them with five orders of
+ * magnitude to spare.
+ *
+ * Absent/NaN reads as unreadable, which is the safe direction: it suppresses.
+ */
+function maximizeIsReadable(m) {
+  return Boolean(m) && (m.bounded || (m.sets ?? 0) <= EPS);
+}
+
 /** Replace `target`'s contents with a single plain-text paragraph. */
 function renderMessage(target, text) {
   target.replaceChildren();
@@ -499,12 +527,32 @@ function renderMessage(target, text) {
 export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalog, goals, fillMinutes, mode }) {
   try {
     const plan = planExpansion({ dataset, rows, enabledRecipeIds, mode });
-    // Maximize only, and only once the plan is bounded: an unbounded plan's
-    // `sets` is not a trustworthy number, so "+28% output" would be measuring
-    // against nothing. Non-fatal by design, matching js/ui/view-model.js:227 —
-    // a suggester failure must never take the plan down with it.
+    // Maximize only, and only once the plan's own number means something: a
+    // RUNAWAY plan's `sets` is a raw-clamp artefact, so "+28% output" would be
+    // measuring against nothing. A ZERO-output plan is not that — see
+    // maximizeIsReadable — and it is the case the feature was designed around
+    // (spec §5's Packaged Turbofuel example), so it must pass this gate.
+    //
+    // Gate conjuncts, since three of the four here used to be indistinguishable
+    // from dead code to a reader:
+    //  - `mode === 'max'`: live. Targets mode has its own benefit kinds and no
+    //    maximize block at all.
+    //  - `plan.maximize` truthy (inside maximizeIsReadable): dead TODAY, kept
+    //    as defense-in-depth. planExpansion's invariant is `maximize` defined
+    //    iff `mode === 'max'`, so the conjunct above already implies it — but
+    //    the predicate dereferences `.bounded`/`.sets`, so if that invariant
+    //    ever changes this is the difference between no suggestions and a
+    //    TypeError inside the recompute path.
+    //  - `maxTargets.length > 0`: LIVE, and newly so. It used to be implied by
+    //    `bounded` (planExpansion hand-rolls `{sets: 0, bounded: false}` for an
+    //    empty maxTargets), which is exactly the shape the zero-output fix now
+    //    lets through — so this is the only thing left stopping a
+    //    nothing-picked-yet plan from running 110 solves to suggest alternates
+    //    for a target that doesn't exist.
+    // Non-fatal by design, matching js/ui/view-model.js:227 — a suggester
+    // failure must never take the plan down with it.
     plan.suggestions = [];
-    if (mode === 'max' && plan.maximize && plan.maximize.bounded) {
+    if (mode === 'max' && maximizeIsReadable(plan.maximize)) {
       const maxTargets = rows
         .filter((r) => r.kind === 'max' && r.itemId)
         .map((r) => ({ itemId: r.itemId, weight: r.weight || 1 }));
@@ -517,27 +565,50 @@ export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalo
             targets: maxTargets,
             // Inherit Expansion's semantics by solving with the real planner:
             // gross-output-only blocks, blockOutputExclusions, raws uncapped.
+            // Every solve suggestAlternates asks for runs through here — the
+            // base, the all-alternates-on probe, and each candidate — so this
+            // is the single place a runaway solve gets neutralised.
+            //
+            // The outer gate above only judges the BASE plan; enabling a recipe
+            // can only enlarge the feasible set, so a bounded base can go
+            // unbounded once a specific alternate is added. Two shapes exist for
+            // that, and a reader who knows only one will get this wrong:
+            // planExpansion returns `sets: Infinity` when the LP is genuinely
+            // unbounded and nothing raw is touched (js/engine/expansion.js:875
+            // passes maxSets' objective straight through), and a huge FINITE
+            // number near RAW_CLAMP when the runaway route does consume a raw
+            // (rawConstraints clamps a non-finite cap to 1e9). Both are live on
+            // the shipped dataset — Iron Plate x6 -> Excited Photonic Matter
+            // gives Infinity, Fuel x6 -> Turbofuel with every alternate on
+            // gives 1.07e9. So `bounded` is the test; a magnitude bound is not
+            // (that is the regression this comment exists to prevent).
+            //
+            // The whole shape is zeroed, not just `sets`. Leaving perPart /
+            // feasible / recipeRates describing the runaway meant three fields
+            // said "here is a 2e9/min build" while the fourth said 0. `perPart`
+            // is unreachable today only because benefitOf bails on
+            // `deltaSets <= EPS` before reading it, and `recipeRates` was NOT
+            // unreachable at all: it is the all-on probe's recipe support, which
+            // is what candidate selection used to rank off (see
+            // js/engine/suggestions.js — with `bounded: false` reported, that
+            // ranking is now skipped in favour of a full sweep, which is what
+            // makes zeroing this field safe rather than merely tidy).
             solve: (ids) => {
               const p = planExpansion({ dataset, rows, enabledRecipeIds: ids, mode });
+              if (!maximizeIsReadable(p.maximize)) {
+                return { sets: 0, perPart: [], feasible: false, recipeRates: new Map(), shortfallTotal: 0, bounded: false };
+              }
               return {
-                // The outer gate above only checks the BASE plan's `bounded` —
-                // enabling a candidate recipe can only enlarge the feasible set,
-                // so a bounded base can go unbounded once a specific alternate is
-                // added. planExpansion still returns a `sets` number even when
-                // `bounded` is false (a raw cap clamps it to a huge-but-finite
-                // value near RAW_CLAMP rather than the solve coming back
-                // infeasible — see js/engine/expansion.js:719-722), and
-                // benefitOf has no sanity bound on the resulting percentage. So
-                // every candidate solve must check its OWN `bounded`, not just
-                // read `sets`: an unbounded candidate reports 0 here, which
-                // drives deltaSets <= EPS and makes benefitOf return null,
-                // suppressing the candidate instead of ranking it top with a
-                // fabricated multi-billion-percent gain.
-                sets: p.maximize?.bounded ? (p.maximize.sets ?? 0) : 0,
-                perPart: p.maximize?.perPart ?? [],
+                sets: p.maximize.sets ?? 0,
+                perPart: p.maximize.perPart ?? [],
                 feasible: p.feasible,
                 recipeRates: p.recipeRates,
                 shortfallTotal: 0,
+                // Reported so suggestAlternates knows whether this solve's
+                // recipeRates can be ranked off. A readable-but-zero solve is
+                // `bounded: false` too, and correctly so: a zero solve has no
+                // recipe support to rank either.
+                bounded: Boolean(p.maximize.bounded),
               };
             },
           }).suggestions.map((s) => ({

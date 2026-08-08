@@ -480,6 +480,153 @@ test('computeExpansionResult: a bounded base whose candidate goes unbounded gets
 });
 
 /**
+ * The wiring half of js/engine/suggestions.js's "an unbounded all-on probe is
+ * swept, not trusted to rank": that test injects its own `bounded` values, so it
+ * cannot catch this file forgetting to report the field. This one runs the real
+ * planner end to end.
+ *
+ * The shipped-dataset repro is Iron Rod x6 -> Modular Frame, where the all-on
+ * probe runs away to 1.9e9 and Steeled Frame — worth +425% on its own — carries
+ * rate 0 in it, so it never became a candidate. Miniaturised here by strict
+ * dominance rather than by a tie-break, so the LP has only one answer to give:
+ * `frameBest` beats `frameGood` per rod, so once both are on, the all-on
+ * optimum spends the block's whole 90 rod/min on `frameBest` and leaves
+ * `frameGood` at exactly 0 — while `frameFromOre` reaches frame from free ore
+ * and makes that probe unbounded. `frameGood` is nevertheless a real +400% on
+ * its own, and pre-fix it was invisible.
+ */
+test('computeExpansionResult: an alternate absent from an unbounded all-on probe is still suggested', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set(['ore']),
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore' }],
+      ['rod', { id: 'rod', name: 'Rod', slug: 'rod' }],
+      ['frame', { id: 'frame', name: 'Frame', slug: 'frame' }],
+    ]),
+    recipes: [
+      { id: 'rodMaker', name: 'rodMaker', buildingId: 'b', alternate: false, inputs: [io('ore', 30)], outputs: [io('rod', 30)] },
+      { id: 'frameBase', name: 'frameBase', buildingId: 'b', alternate: false, inputs: [io('rod', 30)], outputs: [io('frame', 10)] },
+      { id: 'frameGood', name: 'frameGood', buildingId: 'b', alternate: true, inputs: [io('rod', 30)], outputs: [io('frame', 50)] },
+      { id: 'frameBest', name: 'frameBest', buildingId: 'b', alternate: true, inputs: [io('rod', 30)], outputs: [io('frame', 60)] },
+      { id: 'frameFromOre', name: 'frameFromOre', buildingId: 'b', alternate: true, inputs: [io('ore', 10)], outputs: [io('frame', 20)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+  };
+  const rows = [
+    { kind: 'block', recipeId: 'rodMaker', machines: 3, clock: 1 },
+    { kind: 'max', itemId: 'frame', weight: 1 },
+  ];
+  const res = computeExpansionResult({
+    dataset: ds, rows, enabledRecipeIds: new Set(['rodMaker', 'frameBase']),
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.maximize.bounded, true, 'sanity check: the base plan itself is bounded by the rod block');
+  assert.deepEqual(
+    res.plan.suggestions.map((s) => s.recipeId), ['frameBest', 'frameGood'],
+    'both are real bounded gains; pre-fix only frameBest survived candidate selection, because the runaway probe gave frameGood rate 0',
+  );
+  assert.deepEqual(
+    res.plan.suggestions.map((s) => s.benefit.label),
+    ['+150/min Frame (+500%)', '+120/min Frame (+400%)'],
+  );
+});
+
+/**
+ * `plan.maximize.bounded` conflates two opposite states: js/engine/expansion.js
+ * only fills atLimitItems when something was actually drawn, so `sets === 0`
+ * always implies `bounded: false` — the same flag that means "output is
+ * unlimited, ignore this number." Gating suggestions on it therefore suppressed
+ * them for the ZERO-output plan too, which made benefitOf's "builds this
+ * (0 -> X/min)" branch (js/engine/suggestions.js) structurally unreachable from
+ * Expansion, even though that is the case the feature was designed around: this
+ * view's alternates picker starts with all 110 off, so "nothing I have makes
+ * this yet" is the ordinary starting position.
+ *
+ * This fixture is the shipped-dataset repro in miniature (Expansion -> Maximize,
+ * block Fuel x6, max row Turbofuel, all alternates off): the base recipe for
+ * `turbo` needs `coal`, nothing enabled makes `coal`, so the plan is a definite
+ * 0/min — and enabling one alternate produces a real bounded number. On the
+ * real dataset that alternate is Turbo Blend Fuel and the number is 720/min.
+ *
+ * `coalAlt` is here so the single suggestion below is a filter result rather
+ * than an absence of choice: it too makes the plan bounded (at 60/min via the
+ * base recipe), but it carries no flow in the all-on optimum, so the existing
+ * "an alternate the optimum never uses is not suggested" rule drops it.
+ */
+test('computeExpansionResult: a zero-output Maximize plan suggests the alternate that builds it at all', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),
+    items: new Map([
+      ['fuel', { id: 'fuel', name: 'Fuel', slug: 'fuel' }],
+      ['coal', { id: 'coal', name: 'Compacted Coal', slug: 'coal' }],
+      ['turbo', { id: 'turbo', name: 'Turbofuel', slug: 'turbo' }],
+    ]),
+    recipes: [
+      { id: 'fuelMaker', name: 'fuelMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('fuel', 60)] },
+      { id: 'turboBase', name: 'turboBase', buildingId: 'b', alternate: false, inputs: [io('coal', 30), io('fuel', 30)], outputs: [io('turbo', 60)] },
+      { id: 'turboBlend', name: 'turboBlend', buildingId: 'b', alternate: true, inputs: [io('fuel', 30)], outputs: [io('turbo', 45)] },
+      { id: 'coalAlt', name: 'coalAlt', buildingId: 'b', alternate: true, inputs: [io('fuel', 10)], outputs: [io('coal', 10)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+  };
+  const res = computeExpansionResult({
+    dataset: ds,
+    rows: [
+      { kind: 'block', recipeId: 'fuelMaker', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'turbo', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['fuelMaker', 'turboBase']),
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.maximize.sets, 0, 'sanity check: this is the zero-output state, not the unbounded one');
+  assert.equal(res.plan.maximize.bounded, false, 'sanity check: and the engine still reports it as unbounded, which is the whole problem');
+  assert.equal(res.plan.suggestions.length, 1);
+  assert.equal(res.plan.suggestions[0].recipeId, 'turboBlend');
+  assert.match(
+    res.plan.suggestions[0].benefit.label, /^builds this \(0 → 90\/min Turbofuel\)$/,
+    'the zero-output branch of benefitOf must be reachable from Expansion',
+  );
+});
+
+/**
+ * The zero-output gate must not reopen the unbounded one. Same fixture as the
+ * test above minus its block row, so nothing pins fuelMaker and turbo runs away
+ * — `sets` comes back Infinity (no raws exist here to clamp it), which is one of
+ * the two runaway shapes; the huge-finite RAW_CLAMP shape is pinned by "a
+ * bounded base whose candidate goes unbounded" above.
+ */
+test('computeExpansionResult: a runaway Maximize plan still gets no suggestions', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set([]),
+    items: new Map([
+      ['fuel', { id: 'fuel', name: 'Fuel', slug: 'fuel' }],
+      ['turbo', { id: 'turbo', name: 'Turbofuel', slug: 'turbo' }],
+    ]),
+    recipes: [
+      { id: 'fuelMaker', name: 'fuelMaker', buildingId: 'b', alternate: false, inputs: [], outputs: [io('fuel', 60)] },
+      { id: 'turboBase', name: 'turboBase', buildingId: 'b', alternate: false, inputs: [io('fuel', 60)], outputs: [io('turbo', 30)] },
+      { id: 'turboBlend', name: 'turboBlend', buildingId: 'b', alternate: true, inputs: [io('fuel', 30)], outputs: [io('turbo', 45)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+  };
+  const res = computeExpansionResult({
+    dataset: ds,
+    rows: [{ kind: 'max', itemId: 'turbo', weight: 1 }],
+    enabledRecipeIds: new Set(['fuelMaker', 'turboBase']),
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.maximize.bounded, false);
+  assert.equal(Number.isFinite(res.plan.maximize.sets), false, 'sanity check: this is the Infinity runaway shape');
+  assert.deepEqual(res.plan.suggestions, [], 'a plan with no ceiling has no gain to measure a suggestion against');
+});
+
+/**
  * A maximize row names a thing to BUILD. Offering raw resources there was a
  * regression against the Optimizer, whose own target pickers filter them
  * (js/ui/inputs.js) because the engine refuses a raw target outright: maxSets

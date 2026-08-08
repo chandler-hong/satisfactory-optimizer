@@ -20,6 +20,9 @@ import { renderDiagram } from './diagram.js';
 // depend on. Two one-line formatters aren't worth that coupling.
 const fmt1 = (x) => Math.round(x * 10) / 10;
 const fmt2 = (x) => Math.round(x * 100) / 100;
+// Same value the engine and js/ui/expansion.js use; see renderMaximizePanel for
+// the one thing it decides here (zero output vs. unlimited output).
+const EPS = 1e-6;
 
 function el(tag, className) {
   const n = document.createElement(tag);
@@ -184,9 +187,18 @@ function renderMaximizePanel(m) {
   const section = panel('Most you can make');
   if (!m.bounded) {
     const p = el('p', 'hint');
-    p.textContent = m.perPart.length === 0
-      ? 'Pick something to maximize.'
-      : `Your declared lines don't feed ${m.perPart.map((x) => x.name).join(' or ')} — there's nothing here to bound the answer. Add a block or a have row it depends on.`;
+    // Three states, not two. `bounded: false` covers both "unlimited" and
+    // "zero" (js/engine/expansion.js only sets atLimitItems when something was
+    // actually drawn, so a zero solve can never report bounded) — and the two
+    // want opposite advice. Printing the unlimited wording over a zero answer
+    // said "there's nothing here to bound the answer" about an answer that is
+    // definitively 0, and sent the user to add another block when what they
+    // needed was an alternate recipe — directly contradicting the suggestions
+    // panel rendered underneath it, which names the alternate.
+    const names = m.perPart.map((x) => x.name).join(' or ');
+    if (m.perPart.length === 0) p.textContent = 'Pick something to maximize.';
+    else if ((m.sets ?? 0) <= EPS) p.textContent = `Nothing you have enabled can make ${names} — the most you can make right now is 0/min.`;
+    else p.textContent = `Your declared lines don't feed ${names} — there's nothing here to bound the answer. Add a block or a have row it depends on.`;
     section.appendChild(p);
     return section;
   }
@@ -319,16 +331,25 @@ export function renderPlan(wrap, dataset, plan, onEnableAlternate) {
   // them up to a huge-but-finite stand-in), so hasContent(plan) is true even
   // when there's nothing to actually show. Returning here on the unbounded
   // branch keeps that fabricated build-out off the screen entirely, leaving
-  // only the refusal message — matching renderMaximizePanel's own contract.
+  // the maximize panel's own message (plus any suggestions, see below) and
+  // nothing else — matching renderMaximizePanel's own contract.
   if (plan.mode === 'max' && plan.maximize) {
     wrap.appendChild(renderMaximizePanel(plan.maximize));
-    if (!plan.maximize.bounded) return;
-    // Placed after the unbounded early-return on purpose: that branch renders
-    // only a refusal message, and "+28% output" against an unbounded plan
-    // would be measuring a gain over nothing.
+    // Ahead of the unbounded early-return, not after it. It used to sit after,
+    // on the reasoning that "+28% output" against an unbounded plan measures a
+    // gain over nothing — true, but `bounded: false` also covers the ZERO-output
+    // plan, where the honest suggestion is "enabling this builds it at all" and
+    // suppressing it made spec §5's headline scenario unreachable from this
+    // view (see js/ui/expansion.js's maximizeIsReadable).
+    //
+    // This does not reintroduce the gain-over-nothing case: `plan.suggestions`
+    // is produced under that same predicate and is empty for a genuinely
+    // unbounded plan, so gating on the list itself is sufficient here — this
+    // renderer does not need to re-derive the distinction.
     if (plan.suggestions && plan.suggestions.length > 0) {
       wrap.appendChild(renderSuggestions(plan.suggestions, onEnableAlternate));
     }
+    if (!plan.maximize.bounded) return;
   }
   if (!hasContent(plan)) {
     // The hint only helps someone who hasn't described anything yet; after a
