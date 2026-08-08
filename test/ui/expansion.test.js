@@ -361,3 +361,47 @@ test('computeExpansionResult: an alternate declared as a block excludes itself f
     'plateAlt cannot be suggested for producing more of its own block-declared output',
   );
 });
+
+// Fix round 1, finding 1: the outer gate in computeExpansionResult only checks
+// the BASE plan's `bounded`. Enabling a specific alternate can only enlarge
+// the feasible set, so a bounded base can go unbounded once that one
+// candidate is added -- and planExpansion still returns a `sets` number even
+// when `bounded` is false (a raw cap clamps it to a huge-but-finite value near
+// RAW_CLAMP rather than the solve coming back infeasible; see
+// js/engine/expansion.js:719-722). Reproduced here with an ingot block that
+// bounds `plate`, and a disabled alternate (plateFromOre) that reaches plate
+// straight from raw, uncapped ore, bypassing the block entirely: before the
+// fix this fixture ranked plateFromOre top with a label of
+// "+2000000000/min Plate (+10000000000%)"; the fix makes the candidate's own
+// solve report sets:0 when its `bounded` is false, which drives
+// deltaSets <= EPS and lets the ordinary benefitOf null-out path suppress it.
+test('computeExpansionResult: a bounded base whose candidate goes unbounded gets no suggestion', () => {
+  const io = (itemId, perMin) => ({ itemId, perMin });
+  const ds = {
+    rawResourceIds: new Set(['ore']),
+    items: new Map([
+      ['ore', { id: 'ore', name: 'Ore', slug: 'ore' }],
+      ['ingot', { id: 'ingot', name: 'Ingot', slug: 'ingot' }],
+      ['plate', { id: 'plate', name: 'Plate', slug: 'plate' }],
+    ]),
+    recipes: [
+      { id: 'ingotMaker', name: 'ingotMaker', buildingId: 'b', alternate: false, inputs: [io('ore', 30)], outputs: [io('ingot', 30)] },
+      { id: 'plate', name: 'plate', buildingId: 'b', alternate: false, inputs: [io('ingot', 30)], outputs: [io('plate', 20)] },
+      { id: 'plateFromOre', name: 'plateFromOre', buildingId: 'b', alternate: true, inputs: [io('ore', 10)], outputs: [io('plate', 20)] },
+    ],
+    buildings: new Map([['b', { id: 'b', name: 'b', powerMW: 4 }]]),
+    goals: [],
+  };
+  const res = computeExpansionResult({
+    dataset: ds,
+    rows: [
+      { kind: 'block', recipeId: 'ingotMaker', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plate', weight: 1 },
+    ],
+    enabledRecipeIds: new Set(['ingotMaker', 'plate']),   // plateFromOre disabled
+    catalog: [], goals: [], fillMinutes: 60, mode: 'max',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.maximize.bounded, true, 'sanity check: the base plan is bounded by the block');
+  assert.deepEqual(res.plan.suggestions, [], 'an unbounded candidate must be suppressed, not top-ranked');
+});

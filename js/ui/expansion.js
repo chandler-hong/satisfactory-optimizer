@@ -498,7 +498,20 @@ export function computeExpansionResult({ dataset, rows, enabledRecipeIds, catalo
             solve: (ids) => {
               const p = planExpansion({ dataset, rows, enabledRecipeIds: ids, mode });
               return {
-                sets: p.maximize?.sets ?? 0,
+                // The outer gate above only checks the BASE plan's `bounded` —
+                // enabling a candidate recipe can only enlarge the feasible set,
+                // so a bounded base can go unbounded once a specific alternate is
+                // added. planExpansion still returns a `sets` number even when
+                // `bounded` is false (a raw cap clamps it to a huge-but-finite
+                // value near RAW_CLAMP rather than the solve coming back
+                // infeasible — see js/engine/expansion.js:719-722), and
+                // benefitOf has no sanity bound on the resulting percentage. So
+                // every candidate solve must check its OWN `bounded`, not just
+                // read `sets`: an unbounded candidate reports 0 here, which
+                // drives deltaSets <= EPS and makes benefitOf return null,
+                // suppressing the candidate instead of ranking it top with a
+                // fabricated multi-billion-percent gain.
+                sets: p.maximize?.bounded ? (p.maximize.sets ?? 0) : 0,
                 perPart: p.maximize?.perPart ?? [],
                 feasible: p.feasible,
                 recipeRates: p.recipeRates,
