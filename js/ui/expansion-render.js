@@ -317,6 +317,34 @@ export function hasDiagnostics(plan) {
     || (plan.shortfalls && plan.shortfalls.length > 0));
 }
 
+/**
+ * Whether the build panels below renderPlan's maximize section would be a
+ * FABRICATION rather than a report. True only for a RUNAWAY max solve, where
+ * the raw clamp (RAW_CLAMP, js/engine/lp-builder.js) drove
+ * buildRows/netOutputRows/beltRows up to a huge-but-finite stand-in for
+ * "unlimited". hasContent(plan) is true for those, so without this gate they
+ * would render as though they were a real answer.
+ *
+ * `bounded: false` alone is NOT that test, and using it as one was a bug. It
+ * also covers a ZERO-output plan — js/engine/expansion.js only fills
+ * atLimitItems when something was actually drawn, so a zero solve can never
+ * report bounded — and a zero-output plan fabricates nothing: recipeRates is
+ * empty, so every LP-derived panel is empty on its own merits, and what is left
+ * (the declared blocks, their net output, the diagram) is the user's own input,
+ * rendered exactly as Target-rates mode renders the same rows. Returning on
+ * that half meant a zero-output plan showed a suggestions card in a pane where
+ * the user's own "Your blocks" table had been suppressed.
+ *
+ * Same three-state split as renderMaximizePanel above and js/ui/expansion.js's
+ * maximizeIsReadable, and `sets` is the separator in all three — see that
+ * function for the measured gap (every sampled `bounded: false` plan had sets
+ * either exactly 0 or above 2.4e5, nothing between).
+ */
+export function hasFabricatedBuildOut(plan) {
+  return plan.mode === 'max' && Boolean(plan.maximize)
+    && !plan.maximize.bounded && (plan.maximize.sets ?? 0) > EPS;
+}
+
 export function renderPlan(wrap, dataset, plan, onEnableAlternate) {
   wrap.replaceChildren();
   // Diagnostics first and unconditionally on hasDiagnostics — matching the
@@ -326,13 +354,15 @@ export function renderPlan(wrap, dataset, plan, onEnableAlternate) {
     if (plan.requirements && plan.requirements.hasIssues) wrap.appendChild(renderRequirements(plan.requirements));
     if (plan.shortfalls && plan.shortfalls.length > 0) wrap.appendChild(renderShortfalls(plan.shortfalls));
   }
-  // Ahead of the hasContent gate, not after it: an unbounded max-mode plan
-  // still has non-empty buildRows/netOutputRows/beltRows (the raw clamp drove
-  // them up to a huge-but-finite stand-in), so hasContent(plan) is true even
-  // when there's nothing to actually show. Returning here on the unbounded
-  // branch keeps that fabricated build-out off the screen entirely, leaving
-  // the maximize panel's own message (plus any suggestions, see below) and
-  // nothing else — matching renderMaximizePanel's own contract.
+  // Ahead of the hasContent gate, not after it: a RUNAWAY max-mode plan still
+  // has non-empty buildRows/netOutputRows/beltRows (the raw clamp drove them up
+  // to a huge-but-finite stand-in), so hasContent(plan) is true even when
+  // there's nothing to actually show. Returning there keeps that fabricated
+  // build-out off the screen entirely, leaving the maximize panel's own message
+  // (plus any suggestions, see below) and nothing else — matching
+  // renderMaximizePanel's own contract. See hasFabricatedBuildOut above for why
+  // the ZERO-output half of `bounded: false` must NOT return: nothing about it
+  // is fabricated, and returning suppressed the user's own declared blocks.
   if (plan.mode === 'max' && plan.maximize) {
     wrap.appendChild(renderMaximizePanel(plan.maximize));
     // Ahead of the unbounded early-return, not after it. It used to sit after,
@@ -349,7 +379,7 @@ export function renderPlan(wrap, dataset, plan, onEnableAlternate) {
     if (plan.suggestions && plan.suggestions.length > 0) {
       wrap.appendChild(renderSuggestions(plan.suggestions, onEnableAlternate));
     }
-    if (!plan.maximize.bounded) return;
+    if (hasFabricatedBuildOut(plan)) return;
   }
   if (!hasContent(plan)) {
     // The hint only helps someone who hasn't described anything yet; after a

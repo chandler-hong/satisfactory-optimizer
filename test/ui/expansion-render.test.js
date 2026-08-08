@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planExpansion } from '../../js/engine/expansion.js';
-import { hasContent, hasDiagnostics } from '../../js/ui/expansion-render.js';
+import { hasContent, hasDiagnostics, hasFabricatedBuildOut } from '../../js/ui/expansion-render.js';
 import { ironChain, ALL_IRON_RECIPES } from '../fixtures/iron-chain.js';
 
 test('hasContent: a truly empty plan (no rows) has nothing to show', () => {
@@ -46,3 +46,71 @@ test('hasDiagnostics: an impossible target with no build rows has something to e
  * stays correct if raws ever gain caps here, and to match the Optimizer, where
  * capped resources make the shortfall-only case ordinary.
  */
+
+/**
+ * hasFabricatedBuildOut — which half of `bounded: false` renderPlan must hide
+ * the build panels for.
+ *
+ * Both halves report `bounded: false`, and renderPlan used to return on both.
+ * Only the RUNAWAY half has anything fabricated to hide; on the ZERO half the
+ * return was suppressing the user's own declared blocks, so a zero-output plan
+ * showed a suggestions card in a pane with no "Your blocks" table in it.
+ */
+test('hasFabricatedBuildOut: a runaway max plan hides its clamp-scale build-out', () => {
+  const freeStone = { id: 'freeStone', name: 'freeStone', buildingId: 'b', alternate: true, inputs: [], outputs: [{ itemId: 'stone', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, freeStone] };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'stone', weight: 1 },
+    ],
+    enabledRecipeIds: new Set([...ALL_IRON_RECIPES, 'freeStone']),
+    mode: 'max',
+  });
+  assert.equal(p.maximize.bounded, false);
+  assert.ok((p.maximize.sets ?? 0) > 1e-6, 'sanity: this is the unlimited half, not the zero half');
+  assert.equal(hasFabricatedBuildOut(p), true);
+});
+
+test('hasFabricatedBuildOut: a zero-output max plan has nothing fabricated to hide', () => {
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [
+      { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plate', weight: 1 },
+    ],
+    // No ingot recipe, so plate has no route at all and the answer is a
+    // definite 0 rather than a raw-clamp artefact.
+    enabledRecipeIds: new Set(['rod', 'screw']),
+    mode: 'max',
+  });
+  assert.equal(p.maximize.bounded, false, 'a zero solve draws nothing, so it can never report bounded');
+  assert.equal(p.maximize.sets, 0);
+  assert.equal(hasFabricatedBuildOut(p), false);
+  assert.equal(hasContent(p), true, 'and there is real content to show: the declared block itself');
+  assert.equal(p.blockRows.length, 1, 'which renderPlan used to suppress');
+  assert.equal(p.buildRows.length, 0, 'nothing fabricated: the LP built nothing at all');
+});
+
+test('hasFabricatedBuildOut: a bounded max plan and a targets plan both render normally', () => {
+  const bounded = planExpansion({
+    dataset: ironChain,
+    rows: [
+      { kind: 'block', recipeId: 'screw', machines: 2, clock: 1 },
+      { kind: 'max', itemId: 'rotor', weight: 1 },
+    ],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+    mode: 'max',
+  });
+  assert.equal(bounded.maximize.bounded, true);
+  assert.equal(hasFabricatedBuildOut(bounded), false);
+
+  const targets = planExpansion({
+    dataset: ironChain,
+    rows: [{ kind: 'want', itemId: 'plate', rate: 20 }],
+    enabledRecipeIds: ALL_IRON_RECIPES,
+  });
+  assert.equal(targets.maximize, undefined, 'targets mode has no maximize block to dereference');
+  assert.equal(hasFabricatedBuildOut(targets), false);
+});
