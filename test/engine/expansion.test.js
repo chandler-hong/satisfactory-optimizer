@@ -1833,3 +1833,78 @@ test('planExpansion: max mode with no max row yet has nothing to diagnose', () =
   });
   assert.equal(p.requirements.hasIssues, false);
 });
+
+/**
+ * `excludedByBlock` — why an impossible target is impossible, when the answer
+ * is "a block you declared", not "an alternate you haven't ticked".
+ *
+ * js/ui/report-panels.js's impossibleMessage advises "Enabling an alternate
+ * that makes it will unblock it" whenever the severed link IS the target. That
+ * is honest when the producer is a disabled alternate and provably false when
+ * blockOutputExclusions removed it: the exclusion matches on output ITEM, so
+ * the recipe stays out of the solve whether or not it is enabled. Reproduced on
+ * the shipped dataset before this flag existed — declare a Quartz Crystal
+ * block, maximize Dissolved Silica, and the panel sends you to enable Quartz
+ * Purification, which is Dissolved Silica's only producer and is excluded as
+ * collateral for also emitting Quartz Crystal. Enabling it changes nothing:
+ * sets stays 0 and the same message comes back.
+ *
+ * The two tests below are the same plan shape reached two different ways, and
+ * they must disagree — a flag that were merely "this target is impossible in
+ * max mode" would set on both and tell the user nothing.
+ */
+test('planExpansion (max): a target whose only producer was excluded as collateral is flagged excludedByBlock', () => {
+  // Same fixture as the "silent zero" test above: horAlt declared as a block
+  // excludes plasticR (it emits hor too), and plasticR is plastic's only route.
+  const horAlt = { id: 'horAlt', name: 'horAlt', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 2 }], outputs: [{ itemId: 'hor', perMin: 1 }] };
+  const plasticR = { id: 'plasticR', name: 'plasticR', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ore', perMin: 4 }], outputs: [{ itemId: 'plastic', perMin: 2 }, { itemId: 'hor', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, horAlt, plasticR] };
+  const p = planExpansion({
+    dataset,
+    rows: [
+      { kind: 'block', recipeId: 'horAlt', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plastic', weight: 1 },
+    ],
+    // plasticR IS enabled, so nothing here is a "tick the alternate" fix.
+    enabledRecipeIds: new Set([...ALL_IRON_RECIPES, 'horAlt', 'plasticR']),
+    mode: 'max',
+  });
+  const t = p.requirements.impossible[0];
+  assert.equal(t.itemId, 'plastic');
+  assert.deepEqual(t.blockedItems.map((b) => b.itemId), ['plastic'],
+    'sanity: this is exactly the frontier shape impossibleMessage gives the alternate advice for');
+  assert.equal(t.excludedByBlock, true);
+});
+
+test('planExpansion (max): a target blocked by a merely disabled alternate is not flagged excludedByBlock', () => {
+  const horAlt = { id: 'horAlt', name: 'horAlt', buildingId: 'b', alternate: false, inputs: [{ itemId: 'ore', perMin: 2 }], outputs: [{ itemId: 'hor', perMin: 1 }] };
+  const plasticR = { id: 'plasticR', name: 'plasticR', buildingId: 'b', alternate: true, inputs: [{ itemId: 'ore', perMin: 4 }], outputs: [{ itemId: 'plastic', perMin: 2 }, { itemId: 'hor', perMin: 1 }] };
+  const dataset = { ...ironChain, recipes: [...ironChain.recipes, horAlt, plasticR] };
+  const p = planExpansion({
+    dataset,
+    // A block is declared (so exclusions are live at all) but on an unrelated
+    // recipe; plastic is stuck only because plasticR is unticked.
+    rows: [
+      { kind: 'block', recipeId: 'rod', machines: 1, clock: 1 },
+      { kind: 'max', itemId: 'plastic', weight: 1 },
+    ],
+    enabledRecipeIds: new Set([...ALL_IRON_RECIPES, 'horAlt']),
+    mode: 'max',
+  });
+  const t = p.requirements.impossible[0];
+  assert.equal(t.itemId, 'plastic');
+  assert.deepEqual(t.blockedItems.map((b) => b.itemId), ['plastic']);
+  assert.equal(t.excludedByBlock, false,
+    'ticking plasticR really would unblock this, so the alternate advice must stand');
+});
+
+test('planExpansion (targets): no exclusions exist, so nothing is ever flagged excludedByBlock', () => {
+  // The Optimizer's path in miniature: excluded is empty in targets mode, so
+  // impossibleMessage must keep its original wording there.
+  const p = planExpansion({
+    dataset: ironChain,
+    rows: [{ kind: 'want', itemId: 'plate', rate: 20 }],
+    enabledRecipeIds: new Set(['ingot']),
+  });
+  assert.equal(p.requirements.impossible[0].excludedByBlock, false);
+});

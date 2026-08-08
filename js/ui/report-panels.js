@@ -243,6 +243,23 @@ function blockedChips(t) {
  * empty means no recipe set at all can make this, and a sole entry equal to the
  * target means one alternate provably closes it — the only case where the
  * singular advice is honest.
+ *
+ * ...with one exception, which is why there is a fourth sentence. Both
+ * alternate-flavoured messages reason purely about the ENABLED recipe set, and
+ * Expansion has a second way to lose a recipe that has nothing to do with
+ * enabling: declaring a block puts its primary output into `declared`, and
+ * js/engine/expansion.js's blockOutputExclusions then drops every recipe
+ * emitting any declared item, enabled or not. `excludedByBlock` (set there, on
+ * impossible targets only) is true when EVERY recipe that could close the chain
+ * went that way, so ticking alternates is provably futile — reproduced on the
+ * shipped dataset with a declared Quartz Crystal block and Dissolved Silica
+ * maximized, where the old wording sent the user to enable Quartz Purification
+ * and enabling it changed nothing. Reachable with a single base-recipe block on
+ * 22 (block, target) pairs there, five of them on the sole-entry branch.
+ *
+ * The Optimizer has no exclusions and never sets the field, so `undefined`
+ * leaves every message below exactly as it was — which is the required
+ * behaviour, since renderRequirements is shared with js/ui/render.js.
  */
 function impossibleMessage(t) {
   if (t.reason !== 'no-recipe') {
@@ -254,7 +271,17 @@ function impossibleMessage(t) {
   // guarantees rather than blanking the panel on a TypeError.
   if (!blocked) return `No enabled recipe chain produces ${t.name}.`;
   if (blocked.length === 0) {
+    // Still honest under exclusions: blockedFrontier walks EVERY recipe in the
+    // dataset, so an empty frontier means no recipe set closes the chain at
+    // all, whether or not a block also excluded some of them.
     return `No recipe produces ${t.name} — not even with every alternate enabled.`;
+  }
+  // Ahead of both alternate-flavoured branches, because it contradicts both.
+  // One sentence covers them: which links are severed is already spelled out
+  // by the chip row renderRequirements puts underneath (suppressed only on the
+  // sole-entry branch, where the target's own name in this sentence says it).
+  if (t.excludedByBlock) {
+    return `${t.name} can’t be made in this plan, and no alternate will fix it: every recipe that would close the chain also outputs an item one of your blocks declares, so it’s excluded. Change or remove that block.`;
   }
   if (blocked.length === 1 && blocked[0].itemId === t.itemId) {
     return `No enabled recipe produces ${t.name}. Enabling an alternate that makes it will unblock it.`;

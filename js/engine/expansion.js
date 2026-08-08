@@ -679,9 +679,54 @@ export function planExpansion({ dataset, rows, enabledRecipeIds, shardBudget = 0
   const shapeDep = (d) => ({ itemId: d.itemId, name: nameOf(dataset, d.itemId), slug: slugOf(dataset, d.itemId), added: d.added, fluid: fluidOf(dataset, d.itemId) });
   const shapeItem = (itemId) => ({ itemId, name: nameOf(dataset, itemId), slug: slugOf(dataset, itemId), fluid: fluidOf(dataset, itemId) });
   const shapeTarget = (t) => ({ itemId: t.itemId, name: nameOf(dataset, t.itemId), slug: slugOf(dataset, t.itemId), reason: t.reason, deps: t.deps.map(shapeDep), blockedItems: t.blockedItems.map(shapeItem) });
+
+  // `blockedItems` says WHICH links in the chain nothing enabled can make, but
+  // not why — and the two whys want opposite advice. A link produced only by a
+  // disabled alternate is one tick away from fixed, which is what
+  // js/ui/report-panels.js's impossibleMessage says. A link whose every
+  // producer blockOutputExclusions removed is not fixable that way at all: the
+  // exclusion matches on output ITEM, so the recipe stays out of the solve
+  // whether or not it is enabled, and that advice sends the user to do
+  // something that provably does nothing. Reproduced on the shipped dataset:
+  // declare a Quartz Crystal block, maximize Dissolved Silica — Quartz
+  // Purification is Dissolved Silica's only producer and is excluded as
+  // collateral for also emitting Quartz Crystal, so enabling it leaves both
+  // sets and the message unchanged.
+  //
+  // "Closing producer" mirrors blockedFrontier's own frontier test
+  // (requirements.js): recipes whose every input the enabled set can already
+  // make. Those are exactly the recipes the advice is recommending, so those
+  // are the ones to ask about — a producer whose own inputs are unreachable
+  // was never going to close the chain on its own and must not count as a
+  // reason to keep the advice. `enabledProducible` therefore reproduces
+  // analyzeRequirements' `enabledBest` closure exactly: same post-exclusion
+  // recipe set, same raw + supply seeds. Built lazily, since this whole
+  // question only arises for an impossible target in a plan that declares a
+  // block.
+  //
+  // `every` over a non-empty frontier, so one still-openable link is enough to
+  // leave the alternate advice honest. Always a boolean, never absent: the
+  // Optimizer's own path (js/ui/view-model.js) has no exclusions and no such
+  // field at all, and impossibleMessage must keep its original wording there.
+  let enabledProducible = null;
+  const excludedByBlock = (t) => {
+    if (excluded.size === 0 || t.blockedItems.length === 0) return false;
+    if (!enabledProducible) {
+      enabledProducible = producibleClosure(
+        dataset, solveEnabled, [...dataset.rawResourceIds, ...supplies.map((s) => s.itemId)],
+      ).producible;
+    }
+    return t.blockedItems.every((itemId) => {
+      const closing = dataset.recipes.filter((r) => (r.outputs || []).some((o) => o.itemId === itemId)
+        && r.inputs.every((i) => enabledProducible.has(i.itemId)));
+      return closing.length > 0 && closing.every((r) => excluded.has(r.id));
+    });
+  };
+
   const requirements = {
     hasIssues: analysis.anyImpossible || analysis.anyMissing,
-    impossible: analysis.perTarget.filter((t) => t.status === 'impossible').map(shapeTarget),
+    impossible: analysis.perTarget.filter((t) => t.status === 'impossible')
+      .map((t) => ({ ...shapeTarget(t), excludedByBlock: excludedByBlock(t) })),
     missing: analysis.perTarget.filter((t) => t.status === 'missing').map(shapeTarget),
   };
 
